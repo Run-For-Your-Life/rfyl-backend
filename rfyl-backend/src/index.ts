@@ -1,17 +1,24 @@
 //How to get proccesss.env variables
+import path from 'path';
 import dotenv from 'dotenv';
-dotenv.config();
+
+const envPath = path.resolve(__dirname, '../../.env');
+const envResult = dotenv.config({ path: envPath });
+
+if (envResult.error) {
+  dotenv.config();
+}
 
 //Dependencies here
 import express from 'express';
 import { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import { swaggerUi, specs } from './config/swaggerConfig.js';
+import { swaggerUi, specs } from './config/swaggerConfig';
 
 //Routes here
 
 //Middleware here
-import { requestLogger, errorLogger } from './middleware/index.js';
+import { requestLogger, errorLogger } from './middleware/index';
 
 const app = express();
 app.use(express.json());
@@ -33,7 +40,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   res.status(status).json({ error: err.message || 'Internal Server Error' });
 });
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 1000;
 app.listen(PORT, () => {
-    console.log(`Server is runningo n port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 })

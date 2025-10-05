@@ -1,2 +1,2 @@
-export * from "./logging/requestLogger.js"
-export * from "./logging/errorLogger.js"
+export * from "./logging/requestLogger"
+export * from "./logging/errorLogger"
