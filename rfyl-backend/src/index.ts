@@ -16,6 +16,8 @@ import cors from 'cors';
 import { swaggerUi, specs } from './config/swaggerConfig';
 
 //Routes here
+import authRoutes from './routes/auth/index.js';
+import profileRoutes from './routes/profile/index.js';
 
 //Middleware here
 import { requestLogger, errorLogger } from './middleware/index';
@@ -32,6 +34,8 @@ app.use(cors({
 app.use(requestLogger);
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
+app.use('/api/auth', authRoutes);
+app.use('/api/profile', profileRoutes);
 
 app.use(errorLogger);
 //Final error handler middleware
