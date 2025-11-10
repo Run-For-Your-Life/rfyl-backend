@@ -1,13 +1,15 @@
 {
   "main": "dist/index.js",
+  "name": "rfyl-backend",
+  "version": "1.0.0",
   "scripts": {
     "build": "tsc",
     "dev": "nodemon --watch src --ext ts --exec \"npm run build --silent && node dist/index.js\"",
     "start": "node dist/index.js",
     "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
     "lint:fix": "npm run lint -- --fix",
-    "test": "echo \"Backend CI pipeline ran (no tests yet).\" && exit 0",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test": "node tests/smoke.test.js && node tests/build.test.js && node tests/src-structure.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
