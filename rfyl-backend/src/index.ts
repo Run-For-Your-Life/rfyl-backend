@@ -1,6 +1,18 @@
-//How to get proccesss.env variables
+//Native imports here
 import path from 'path';
+
+//Library imports here
+import cors from 'cors';
 import dotenv from 'dotenv';
+import express, { Request, Response, NextFunction } from 'express';
+
+//Confit here
+import { swaggerUi, specs } from './config/swaggerConfig';
+//Middleware here
+import { requestLogger, errorLogger } from './middleware/index';
+//Routes here
+import authRoutes from './routes/auth/index.js';
+import profileRoutes from './routes/profile/index.js';
 
 const envPath = path.resolve(__dirname, '../../.env');
 const envResult = dotenv.config({ path: envPath });
@@ -8,19 +20,6 @@ const envResult = dotenv.config({ path: envPath });
 if (envResult.error) {
   dotenv.config();
 }
-
-//Dependencies here
-import express from 'express';
-import { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
-import { swaggerUi, specs } from './config/swaggerConfig';
-
-//Routes here
-import authRoutes from './routes/auth/index.js';
-import profileRoutes from './routes/profile/index.js';
-
-//Middleware here
-import { requestLogger, errorLogger } from './middleware/index';
 
 const app = express();
 app.use(express.json());
@@ -39,10 +38,23 @@ app.use('/api/profile', profileRoutes);
 
 app.use(errorLogger);
 //Final error handler middleware
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  const status = err.status || 500;
-  res.status(status).json({ error: err.message || 'Internal Server Error' });
+type HttpError = {
+  status?: number;
+  message?: string;
+};
+
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  const { status, message } = isHttpError(err) ? err : {};
+  res.status(status ?? 500).json({ error: message ?? 'Internal Server Error' });
 });
+
+function isHttpError(value: unknown): value is HttpError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    ('status' in value || 'message' in value)
+  );
+}
 
 const PORT = process.env.PORT || 1000;
 app.listen(PORT, () => {
