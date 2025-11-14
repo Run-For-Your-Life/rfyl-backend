@@ -1,25 +1,15 @@
-//Native imports here
-import path from 'path';
-
 //Library imports here
 import cors from 'cors';
-import dotenv from 'dotenv';
 import express, { Request, Response, NextFunction } from 'express';
 
-//Confit here
+//Config here
+import './config/env.js';
 import { swaggerUi, specs } from './config/swaggerConfig';
 //Middleware here
 import { requestLogger, errorLogger } from './middleware/index';
 //Routes here
 import authRoutes from './routes/auth/index.js';
 import profileRoutes from './routes/profile/index.js';
-
-const envPath = path.resolve(__dirname, '../../.env');
-const envResult = dotenv.config({ path: envPath });
-
-if (envResult.error) {
-  dotenv.config();
-}
 
 const app = express();
 app.use(express.json());

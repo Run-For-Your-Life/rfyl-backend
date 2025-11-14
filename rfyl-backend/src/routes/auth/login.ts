@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { authenticateUser } from '../../services/authService.js';
 
 const router = Router();
 
@@ -14,29 +15,20 @@ const toHttpError = (error: unknown, fallbackMessage: string): HttpError => {
   return new Error(fallbackMessage);
 };
 
-function loginUser(email: string, password: string){
-    console.log(`Logging in user with email: ${email}`);
-    // Mock implementation of user login
-    if (email === 'test@example.com' && password === 'password') {
-        return Promise.resolve({
-            _user: { id: 1, email },
-            session: { token: 'abc123' }
-        });
-    }
-}
-
 router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, password } = req.body;
-    const result = await loginUser(email, password);
-    if (!result) {
-        throw new Error('Invalid email or password');
+    if (typeof email !== 'string' || typeof password !== 'string') {
+        const validationError = new Error('Email and password are required') as HttpError;
+        validationError.status = 400;
+        throw validationError;
     }
-    const { _user: user, session } = result;
-    res.status(200).json({ user, session });
+
+    const user = await authenticateUser(email, password);
+    res.status(200).json({ user });
   } catch (err: unknown) {
     const error = toHttpError(err, 'Login failed');
-    error.status = 401;
+    error.status = error.status ?? 401;
     next(error); 
   }
 });
