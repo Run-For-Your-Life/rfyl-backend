@@ -3,51 +3,59 @@ import pool from './dbclient.js';
 
 export type UserRecord = {
     id: number;
+    username: string;
     email: string;
-    passwordHash: string;
     createdAt: Date;
+    totalDistanceM: number;
+    weeklyFlair: boolean;
 };
 
 type UserRow = RowDataPacket & {
     id: number;
+    username: string;
     email: string;
-    password_hash: string;
     created_at: Date;
+    total_distance_m: number;
+    weekly_flair: number;
 };
 
 const mapUserRow = (row: UserRow): UserRecord => ({
     id: row.id,
+    username: row.username,
     email: row.email,
-    passwordHash: row.password_hash,
     createdAt: row.created_at,
+    totalDistanceM: row.total_distance_m,
+    weeklyFlair: Boolean(row.weekly_flair),
 });
 
 export const findUserByEmail = async (email: string): Promise<UserRecord | null> => {
     const [rows] = await pool.query<UserRow[]>(
-        'SELECT id, email, password_hash, created_at FROM users WHERE email = ? LIMIT 1',
+        'SELECT id, username, email, created_at, total_distance_m, weekly_flair FROM users WHERE email = ? LIMIT 1',
         [email]
     );
 
     return rows[0] ? mapUserRow(rows[0]) : null;
 };
 
-export const insertUser = async (email: string, passwordHash: string): Promise<UserRecord> => {
+export const insertUser = async (username: string, email: string): Promise<UserRecord> => {
     const [result] = await pool.execute<ResultSetHeader>(
-        'INSERT INTO users (email, password_hash) VALUES (?, ?)',
-        [email, passwordHash]
+        'INSERT INTO users (username, email) VALUES (?, ?)',
+        [username, email]
     );
 
     const [rows] = await pool.query<UserRow[]>(
-        'SELECT id, email, password_hash, created_at FROM users WHERE id = ? LIMIT 1',
+        'SELECT id, username, email, created_at, total_distance_m, weekly_flair FROM users WHERE id = ? LIMIT 1',
         [result.insertId]
     );
 
     if (!rows[0]) {
         return {
             id: result.insertId,
+            username,
             email,
-            passwordHash,
             createdAt: new Date(),
+            totalDistanceM: 0,
+            weeklyFlair: false,
         };
     }
 

@@ -17,14 +17,14 @@ const toHttpError = (error: unknown, fallbackMessage: string): HttpError => {
 
 router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, password } = req.body;
-    if (typeof email !== 'string' || typeof password !== 'string') {
-        const validationError = new Error('Email and password are required') as HttpError;
+    const { email, username } = req.body;
+    if (typeof email !== 'string') {
+        const validationError = new Error('Email is required') as HttpError;
         validationError.status = 400;
         throw validationError;
     }
 
-    const user = await authenticateUser(email, password);
+    const user = await authenticateUser(email, typeof username === 'string' ? username : undefined);
     res.status(200).json({ user });
   } catch (err: unknown) {
     const error = toHttpError(err, 'Login failed');
