@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { registerUser } from '../../services/authService.js';
 
 const router = Router();
 
@@ -14,22 +15,21 @@ const toHttpError = (error: unknown, fallbackMessage: string): HttpError => {
   return new Error(fallbackMessage);
 };
 
-function registerUser(email: string, password: string){
-    console.log(`Registering user with email: ${email}`);
-    // Mock implementation of user registeration
-    // Add to db here
-    return ({user: email, password});
-}
-
 router.post('/register', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, password } = req.body;
-    const { user } = await registerUser(email, password);
+    const { email, username } = req.body;
+    if (typeof email !== 'string' || typeof username !== 'string') {
+        const validationError = new Error('Email and username are required') as HttpError;
+        validationError.status = 400;
+        throw validationError;
+    }
 
-    res.status(200).json({ user });
+    const user = await registerUser(username, email);
+
+    res.status(201).json({ user });
   } catch (err: unknown) {
     const error = toHttpError(err, 'Registration failed');
-    error.status = 401;
+    error.status = error.status ?? 400;
     next(error); 
   }
 });
