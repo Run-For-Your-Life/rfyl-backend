@@ -10,6 +10,7 @@ import { requestLogger, errorLogger } from './middleware/index';
 //Routes here
 import authRoutes from './routes/auth/index.js';
 import profileRoutes from './routes/profile/index.js';
+import leaderboardRoutes from './routes/leaderboard/index.js'; // ⬅ add this
 
 const app = express();
 app.use(express.json());
@@ -25,6 +26,7 @@ app.use(requestLogger);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
 
 app.use(errorLogger);
 //Final error handler middleware
