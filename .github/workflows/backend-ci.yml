@@ -1,4 +1,36 @@
-name: CI
+# name: Backend CI
+
+# on:
+#   push:
+#     branches: [ main ]
+#   pull_request:
+#     branches: [ main ]
+
+# jobs:
+#   backend-tests:
+#     runs-on: ubuntu-latest
+
+#     defaults:
+#       run:
+#         working-directory: rfyl-backend 
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+
+#       - name: Set up Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: 20
+#           cache: npm
+#           cache-dependency-path: rfyl-backend/package-lock.json
+
+#       - name: Install dependencies
+#         run: npm install
+
+#       - name: Run backend tests
+#         run: npm test
+
+name: Backend CI
 
 on:
   push:
@@ -15,7 +47,7 @@ jobs:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       DB_NAME: ${{ secrets.DB_NAME }}
       CLOUDSQL_AUTOSTART_PROXY: "false" # prevent test from trying to spawn its own proxy
-      #temp change to trigger update
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,7 +57,6 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: package-lock.json
 
       - name: Install MySQL client and curl
         run: sudo apt-get update && sudo apt-get install -y mysql-client curl netcat-openbsd
