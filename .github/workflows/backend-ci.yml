@@ -57,6 +57,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install MySQL client and curl
         run: sudo apt-get update && sudo apt-get install -y mysql-client curl netcat-openbsd
