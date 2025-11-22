@@ -7,6 +7,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: password
+      DB_NAME: runforyourlife_db
 
     services:
       mysql:
@@ -44,12 +50,9 @@ jobs:
         run: |
           mysql -h 127.0.0.1 -P 3306 -uroot -ppassword runforyourlife_db < src/db/runforyourlife_db.sql
 
+      - name: Verify DB env
+        run: env | grep '^DB_'
+
       - name: Run tests
         working-directory: rfyl-backend
-        env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_USER: root
-          DB_PASSWORD: password
-          DB_NAME: runforyourlife_db
         run: npm test
