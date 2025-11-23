@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+
 import { authenticateUser } from '../../services/authService.js';
 
 interface HttpError extends Error {
@@ -18,14 +19,14 @@ export const createLoginRouter = (authenticateFn: typeof authenticateUser = auth
 
   router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, username } = req.body;
-      if (typeof email !== 'string') {
-          const validationError = new Error('Email is required') as HttpError;
+      const { username, password } = req.body;
+      if (typeof username !== 'string' || typeof password !== 'string') {
+          const validationError = new Error('Username and password are required') as HttpError;
           validationError.status = 400;
           throw validationError;
       }
 
-      const user = await authenticateFn(email, typeof username === 'string' ? username : undefined);
+      const user = await authenticateFn(username, password);
       res.status(200).json({ user });
     } catch (err: unknown) {
       const error = toHttpError(err, 'Login failed');

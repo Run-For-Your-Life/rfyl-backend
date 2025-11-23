@@ -9,8 +9,8 @@ import { swaggerUi, specs } from './config/swaggerConfig';
 import { requestLogger, errorLogger } from './middleware/index';
 //Routes here
 import authRoutes from './routes/auth/index.js';
+import leaderboardRoutes from './routes/leaderboard/index.js';
 import profileRoutes from './routes/profile/index.js';
-import leaderboardRoutes from './routes/leaderboard/index.js'; // ⬅ add this
 
 const app = express();
 app.use(express.json());
@@ -50,5 +50,5 @@ function isHttpError(value: unknown): value is HttpError {
 
 const PORT = process.env.PORT || 1000;
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+  console.warn(`Server is running on port ${PORT}`);
 })

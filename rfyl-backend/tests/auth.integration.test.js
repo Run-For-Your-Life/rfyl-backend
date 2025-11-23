@@ -53,7 +53,8 @@ const maybeStartProxy = async () => {
 
 const run = async () => {
   const email = `integration-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
-  const username = 'test-runner';
+  const username = `runner-${Math.random().toString(16).slice(2)}`;
+  const password = 'P@ssw0rd!';
   let createdUserId;
   let stopProxy;
   let pool;
@@ -82,20 +83,24 @@ const run = async () => {
     // Load env (side effect) before importing dbclient/authService compiled output.
     require('../dist/config/env.js'); // eslint-disable-line @typescript-eslint/no-var-requires
     const { registerUser, authenticateUser } = require('../dist/services/authService.js');
-    const { findUserByEmail } = require('../dist/db/queries.js');
+    const { findUserByEmail, findUserByUsername } = require('../dist/db/queries.js');
     const poolModule = require('../dist/db/dbclient.js');
     pool = poolModule.default || poolModule;
 
-    const registered = await registerUser(username, email);
+    const registered = await registerUser(username, email, password);
     createdUserId = registered.id;
     assert.strictEqual(registered.email, email, 'Registered user should echo email');
     assert.ok(Number.isFinite(createdUserId), 'New user should have an id');
 
-    const fetched = await findUserByEmail(email);
-    assert.ok(fetched, 'User should persist in DB');
-    assert.strictEqual(fetched.id, createdUserId, 'Fetched user should match created id');
+    const fetchedByEmail = await findUserByEmail(email);
+    assert.ok(fetchedByEmail, 'User should persist in DB by email');
+    assert.strictEqual(fetchedByEmail.id, createdUserId, 'Fetched user should match created id (email)');
 
-    const loggedIn = await authenticateUser(email, username);
+    const fetchedByUsername = await findUserByUsername(username);
+    assert.ok(fetchedByUsername, 'User should persist in DB by username');
+    assert.strictEqual(fetchedByUsername.id, createdUserId, 'Fetched user should match created id (username)');
+
+    const loggedIn = await authenticateUser(username, password);
     assert.strictEqual(loggedIn.id, createdUserId, 'Auth should return the same user');
 
     let duplicateError;
