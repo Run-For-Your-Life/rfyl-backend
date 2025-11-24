@@ -1,4 +1,3 @@
-// src/db/leaderboard.ts
 import { RowDataPacket } from 'mysql2/promise';
 import pool from './dbclient.js';
 
@@ -13,7 +12,6 @@ type LeaderboardRow = RowDataPacket & {
   user_id: number;
   username: string;
   total_area_m2: number;
-  rank: number;
 };
 
 /**
@@ -28,10 +26,7 @@ export async function getLeaderboard(
     SELECT 
       u.id AS user_id,
       u.username,
-      SUM(t.area_m2) AS total_area_m2,
-      RANK() OVER (
-        ORDER BY SUM(t.area_m2) DESC, u.id ASC
-      ) AS rank
+      SUM(t.area_m2) AS total_area_m2
     FROM territories t
     JOIN users u ON u.id = t.owner_id
     WHERE t.week_id = ?
@@ -44,11 +39,18 @@ export async function getLeaderboard(
 
   const [rows] = await pool.execute<LeaderboardRow[]>(sql, params);
 
-  // Convert the raw database row fields into the LeaderboardRecord shape
-  return rows.map((row) => ({
+  // Sort + assign rank in application code so we don't depend on SQL window functions
+  const sorted = rows.sort((a, b) => {
+    if (b.total_area_m2 !== a.total_area_m2) {
+      return b.total_area_m2 - a.total_area_m2;
+    }
+    return a.user_id - b.user_id;
+  });
+
+  return sorted.map((row, index) => ({
     userId: row.user_id,
     username: row.username,
     totalAreaM2: row.total_area_m2,
-    rank: row.rank,
+    rank: index + 1,
   }));
 }
