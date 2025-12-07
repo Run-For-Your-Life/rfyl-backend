@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+
 import { findUserByEmail, findUserByUsername, insertUser, UserRecord } from '../db/queries.js';
 
 export type PublicUser = {
