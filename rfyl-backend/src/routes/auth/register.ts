@@ -1,7 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { registerUser } from '../../services/authService.js';
 
-const router = Router();
+import { registerUser } from '../../services/authService.js';
 
 interface HttpError extends Error {
   status?: number;
@@ -15,23 +14,31 @@ const toHttpError = (error: unknown, fallbackMessage: string): HttpError => {
   return new Error(fallbackMessage);
 };
 
-router.post('/register', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { email, username } = req.body;
-    if (typeof email !== 'string' || typeof username !== 'string') {
-        const validationError = new Error('Email and username are required') as HttpError;
-        validationError.status = 400;
-        throw validationError;
+export const createRegisterRouter = (registerFn: typeof registerUser = registerUser) => {
+  const router = Router();
+
+  router.post('/register', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { email, username, password } = req.body;
+      if (typeof email !== 'string' || typeof username !== 'string' || typeof password !== 'string') {
+          const validationError = new Error('Email, username, and password are required') as HttpError;
+          validationError.status = 400;
+          throw validationError;
+      }
+
+      const user = await registerFn(username, email, password);
+
+      res.status(201).json({ user });
+    } catch (err: unknown) {
+      const error = toHttpError(err, 'Registration failed');
+      error.status = error.status ?? 400;
+      next(error); 
     }
+  });
 
-    const user = await registerUser(username, email);
+  return router;
+};
 
-    res.status(201).json({ user });
-  } catch (err: unknown) {
-    const error = toHttpError(err, 'Registration failed');
-    error.status = error.status ?? 400;
-    next(error); 
-  }
-});
+const router = createRegisterRouter();
 
 export default router;

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+
 import loginRoute from './login.js';
 import registerRoute from './register.js';
 

@@ -1,50 +1,57 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+
 import pool from './dbclient.js';
 
 export type UserRecord = {
     id: number;
     username: string;
     email: string;
+    passwordHash: string;
     createdAt: Date;
-    totalDistanceM: number;
-    weeklyFlair: boolean;
 };
 
 type UserRow = RowDataPacket & {
     id: number;
     username: string;
     email: string;
+    password_hash: string;
     created_at: Date;
-    total_distance_m: number;
-    weekly_flair: number;
 };
 
 const mapUserRow = (row: UserRow): UserRecord => ({
     id: row.id,
     username: row.username,
     email: row.email,
+    passwordHash: row.password_hash,
     createdAt: row.created_at,
-    totalDistanceM: row.total_distance_m,
-    weeklyFlair: Boolean(row.weekly_flair),
 });
 
 export const findUserByEmail = async (email: string): Promise<UserRecord | null> => {
     const [rows] = await pool.query<UserRow[]>(
-        'SELECT id, username, email, created_at, total_distance_m, weekly_flair FROM users WHERE email = ? LIMIT 1',
+        'SELECT id, username, email, password_hash, created_at FROM users WHERE email = ? LIMIT 1',
         [email]
     );
 
     return rows[0] ? mapUserRow(rows[0]) : null;
 };
 
-export const insertUser = async (username: string, email: string): Promise<UserRecord> => {
+export const findUserByUsername = async (username: string): Promise<UserRecord | null> => {
+    const [rows] = await pool.query<UserRow[]>(
+        'SELECT id, username, email, password_hash, created_at FROM users WHERE username = ? LIMIT 1',
+        [username]
+    );
+
+    return rows[0] ? mapUserRow(rows[0]) : null;
+};
+
+export const insertUser = async (username: string, email: string, passwordHash: string): Promise<UserRecord> => {
     const [result] = await pool.execute<ResultSetHeader>(
-        'INSERT INTO users (username, email) VALUES (?, ?)',
-        [username, email]
+        'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
+        [username, email, passwordHash]
     );
 
     const [rows] = await pool.query<UserRow[]>(
-        'SELECT id, username, email, created_at, total_distance_m, weekly_flair FROM users WHERE id = ? LIMIT 1',
+        'SELECT id, username, email, password_hash, created_at FROM users WHERE id = ? LIMIT 1',
         [result.insertId]
     );
 
@@ -53,9 +60,8 @@ export const insertUser = async (username: string, email: string): Promise<UserR
             id: result.insertId,
             username,
             email,
+            passwordHash,
             createdAt: new Date(),
-            totalDistanceM: 0,
-            weeklyFlair: false,
         };
     }
 

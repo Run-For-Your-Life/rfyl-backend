@@ -1,5 +1,6 @@
 // src/db/leaderboard.ts
 import { RowDataPacket } from 'mysql2/promise';
+
 import pool from './dbclient.js';
 
 export type LeaderboardRecord = {

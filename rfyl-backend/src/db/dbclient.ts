@@ -1,4 +1,5 @@
 import mysql, { PoolOptions } from 'mysql2/promise';
+
 import { getEnv, getNumberEnv, requireEnv } from '../config/env.js';
 
 const connectionLimit = getNumberEnv('DB_CONNECTION_LIMIT', 5) ?? 5;

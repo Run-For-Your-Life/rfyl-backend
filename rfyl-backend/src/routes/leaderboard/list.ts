@@ -1,5 +1,6 @@
 // src/routes/leaderboard/list.ts
 import { Router, Request, Response, NextFunction } from 'express';
+
 import { getLeaderboard } from '../../db/leaderboard.js';
 
 const router = Router();

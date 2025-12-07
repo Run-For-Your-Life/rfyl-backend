@@ -30,4 +30,4 @@ uploads/
 tmp/
 
 ceremonial-tea-477623-h6-45d4b7b2d842.json
-rfyl-backend/src/db/runforyourlife_db.sql
+# rfyl-backend/src/db/runforyourlife_db.sql

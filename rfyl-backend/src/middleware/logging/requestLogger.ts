@@ -1,6 +1,7 @@
-import { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
+
+import { Request, Response, NextFunction } from 'express';
 
 const logFilePath = path.join(process.cwd(), 'request.log');
 
