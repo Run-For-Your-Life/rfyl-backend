@@ -1,52 +1,37 @@
-# name: Backend CI
-
-# on:
-#   push:
-#     branches: [ main ]
-#   pull_request:
-#     branches: [ main ]
-
-# jobs:
-#   backend-tests:
-#     runs-on: ubuntu-latest
-
-#     defaults:
-#       run:
-#         working-directory: rfyl-backend 
-#     steps:
-#       - name: Checkout repository
-#         uses: actions/checkout@v4
-
-#       - name: Set up Node.js
-#         uses: actions/setup-node@v4
-#         with:
-#           node-version: 20
-#           cache: npm
-#           cache-dependency-path: rfyl-backend/package-lock.json
-
-#       - name: Install dependencies
-#         run: npm install
-
-#       - name: Run backend tests
-#         run: npm test
-
 name: Backend CI
 
 on:
   push:
+    branches: [ main ]
+    paths:
+      - "rfyl-backend/**"
+      - ".github/workflows/backend-ci.yml"
   pull_request:
+    branches: [ main ]
+    paths:
+      - "rfyl-backend/**"
+      - ".github/workflows/backend-ci.yml"
 
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
     environment: cloudsql-connect
+
     env:
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
       DB_USER: ${{ secrets.DB_USER }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       DB_NAME: ${{ secrets.DB_NAME }}
-      CLOUDSQL_AUTOSTART_PROXY: "false" # prevent test from trying to spawn its own proxy
+      DB_CONNECTION_LIMIT: 5
+      # Force host/port mode in dbclient.ts (no Unix socket in CI)
+      DB_SOCKET_PATH: ""
+      # Prevent tests from trying to spawn their own proxy (if they ever do)
+      CLOUDSQL_AUTOSTART_PROXY: "false"
+
+    defaults:
+      run:
+        working-directory: rfyl-backend
 
     steps:
       - name: Checkout
@@ -57,7 +42,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: rfyl-backend/package-lock.json
 
       - name: Install MySQL client and curl
         run: sudo apt-get update && sudo apt-get install -y mysql-client curl netcat-openbsd
@@ -88,16 +73,13 @@ jobs:
           echo "Proxy did not start in time" && exit 1
 
       - name: Install dependencies
-        working-directory: .
         run: npm ci
 
       - name: Seed database schema
-        working-directory: .
         run: |
           mysql -h 127.0.0.1 -P ${DB_PORT} -u"${DB_USER}" -p"${DB_PASSWORD}" "${DB_NAME}" < src/db/runforyourlife_db.sql
 
       - name: Run tests
-        working-directory: .
         run: npm test
 
       - name: Stop Cloud SQL Proxy
