@@ -58,31 +58,17 @@ jobs:
 
       - name: Start Cloud SQL Proxy
         run: |
-          nohup cloud-sql-proxy \
-            --credentials-file=/tmp/cloudsql-key.json \
-            --port=${DB_PORT} \
-            ${{ secrets.CLOUDSQL_CONNECTION_NAME }} \
-            >/tmp/cloudsql-proxy.log 2>&1 &
-
-          PROXY_PID=$!
-          echo "${PROXY_PID}" > /tmp/cloudsql-proxy.pid
-          echo "Started Cloud SQL Proxy with PID ${PROXY_PID}"
+          nohup cloud-sql-proxy --credentials-file=/tmp/cloudsql-key.json --port=${DB_PORT} ${{ secrets.CLOUDSQL_CONNECTION_NAME }} >/tmp/cloudsql-proxy.log 2>&1 &
+          echo "Cloud SQL Proxy started in background"
 
       - name: Install dependencies
         run: npm ci
 
       - name: Seed database schema
         run: |
-          echo "Waiting for Cloud SQL Proxy to be ready..."
+          echo "Waiting 10 seconds for Cloud SQL Proxy to be ready..."
           sleep 10
           mysql -h 127.0.0.1 -P ${DB_PORT} -u"${DB_USER}" -p"${DB_PASSWORD}" "${DB_NAME}" < src/db/runforyourlife_db.sql
 
       - name: Run tests
         run: npm test
-
-      - name: Stop Cloud SQL Proxy
-        if: always()
-        run: |
-          if [ -f /tmp/cloudsql-proxy.pid ]; then
-            kill "$(cat /tmp/cloudsql-proxy.pid)" || true
-          fi
