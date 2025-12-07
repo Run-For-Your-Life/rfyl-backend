@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "main": "dist/index.js",
   "name": "rfyl-backend",
   "version": "1.0.0",

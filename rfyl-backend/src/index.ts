@@ -4,9 +4,9 @@ import express, { Request, Response, NextFunction } from 'express';
 
 //Config here
 import './config/env.js';
-import { swaggerUi, specs } from './config/swaggerConfig';
+import { swaggerUi, specs } from './config/swaggerConfig.js';
 //Middleware here
-import { requestLogger, errorLogger } from './middleware/index';
+import { requestLogger, errorLogger } from './middleware/index.js';
 //Routes here
 import authRoutes from './routes/auth/index.js';
 import leaderboardRoutes from './routes/leaderboard/index.js';
