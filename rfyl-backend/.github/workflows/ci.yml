@@ -7,14 +7,27 @@ on:
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
-    environment: cloudsql-connect
     env:
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
-      DB_USER: ${{ secrets.DB_USER }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      DB_NAME: ${{ secrets.DB_NAME }}
-      CLOUDSQL_AUTOSTART_PROXY: "false" # prevent test from trying to spawn its own proxy
+      DB_USER: root
+      DB_PASSWORD: password
+      DB_NAME: runforyourlife_db
+      CLOUDSQL_AUTOSTART_PROXY: "false" # ensure tests don't try to spawn proxy themselves
+
+    services:
+      mysql:
+        image: mysql:8.0
+        ports:
+          - 3306:3306
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: runforyourlife_db
+        options: >-
+          --health-cmd="mysqladmin ping -ppassword"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
 
     steps:
       - name: Checkout
@@ -27,33 +40,8 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Install MySQL client and curl
-        run: sudo apt-get update && sudo apt-get install -y mysql-client curl netcat-openbsd
-
-      - name: Download Cloud SQL Proxy
-        run: |
-          curl -sSL -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.13.0/cloud-sql-proxy.linux.amd64
-          chmod +x cloud-sql-proxy
-          sudo mv cloud-sql-proxy /usr/local/bin/cloud-sql-proxy
-
-      - name: Write service account key
-        run: |
-          echo "${{ secrets.CLOUDSQL_SA_JSON }}" > /tmp/cloudsql-key.json
-          chmod 600 /tmp/cloudsql-key.json
-
-      - name: Start Cloud SQL Proxy
-        run: |
-          cloud-sql-proxy \
-            --credentials-file=/tmp/cloudsql-key.json \
-            --port=${DB_PORT} \
-            ${{ secrets.CLOUDSQL_CONNECTION_NAME }} &
-          echo $! > /tmp/cloudsql-proxy.pid
-          # wait for proxy to accept connections
-          for i in {1..15}; do
-            nc -z 127.0.0.1 ${DB_PORT} && exit 0
-            sleep 1
-          done
-          echo "Proxy did not start in time" && exit 1
+      - name: Install MySQL client
+        run: sudo apt-get update && sudo apt-get install -y mysql-client
 
       - name: Install dependencies
         working-directory: .
@@ -67,10 +55,3 @@ jobs:
       - name: Run tests
         working-directory: .
         run: npm test
-
-      - name: Stop Cloud SQL Proxy
-        if: always()
-        run: |
-          if [ -f /tmp/cloudsql-proxy.pid ]; then
-            kill "$(cat /tmp/cloudsql-proxy.pid)" || true
-          fi
