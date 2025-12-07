@@ -24,9 +24,7 @@ jobs:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       DB_NAME: ${{ secrets.DB_NAME }}
       DB_CONNECTION_LIMIT: 5
-      # Force host/port mode in dbclient.ts (no Unix socket in CI)
       DB_SOCKET_PATH: ""
-      # Prevent tests from trying to spawn their own proxy (if they ever do)
       CLOUDSQL_AUTOSTART_PROXY: "false"
 
     defaults:
@@ -55,7 +53,7 @@ jobs:
 
       - name: Write service account key
         run: |
-          echo "${{ secrets.CLOUDSQL_SA_JSON }}" > /tmp/cloudsql-key.json
+          echo "${{ secrets.CLOUDSQL_SA_JSON_B64 }}" | base64 --decode > /tmp/cloudsql-key.json
           chmod 600 /tmp/cloudsql-key.json
 
       - name: Start Cloud SQL Proxy
@@ -87,4 +85,3 @@ jobs:
         run: |
           if [ -f /tmp/cloudsql-proxy.pid ]; then
             kill "$(cat /tmp/cloudsql-proxy.pid)" || true
-          fi
