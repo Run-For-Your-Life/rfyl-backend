@@ -58,28 +58,18 @@ jobs:
 
       - name: Start Cloud SQL Proxy
         run: |
+          # Start proxy in the background
           cloud-sql-proxy \
             --credentials-file=/tmp/cloudsql-key.json \
             --port=${DB_PORT} \
-            ${{ secrets.CLOUDSQL_CONNECTION_NAME }} &
+            ${{ secrets.CLOUDSQL_CONNECTION_NAME }} > /tmp/cloudsql-proxy.log 2>&1 &
+          
           PROXY_PID=$!
           echo "${PROXY_PID}" > /tmp/cloudsql-proxy.pid
           echo "Started Cloud SQL Proxy with PID ${PROXY_PID}"
 
-          # wait for proxy to accept connections
-          for i in {1..15}; do
-            if nc -z 127.0.0.1 ${DB_PORT}; then
-              echo "Cloud SQL Proxy is up on 127.0.0.1:${DB_PORT}"
-              break
-            fi
-            echo "Waiting for Cloud SQL Proxy... (${i}/15)"
-            sleep 1
-          done
-
-          if ! nc -z 127.0.0.1 ${DB_PORT}; then
-            echo "Proxy did not start in time"
-            exit 1
-          fi
+          # Give the proxy a few seconds to boot up
+          sleep 10
 
       - name: Install dependencies
         run: npm ci
@@ -96,3 +86,4 @@ jobs:
         run: |
           if [ -f /tmp/cloudsql-proxy.pid ]; then
             kill "$(cat /tmp/cloudsql-proxy.pid)" || true
+          fi
