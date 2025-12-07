@@ -1,3 +1,4 @@
+// src/db/leaderboard.ts
 import { RowDataPacket } from 'mysql2/promise';
 
 import pool from './dbclient.js';
@@ -29,21 +30,23 @@ export async function getLeaderboard(
       u.id AS user_id,
       u.username,
       SUM(t.area_m2) AS total_area_m2,
-      RANK() OVER (ORDER BY SUM(t.area_m2) DESC) AS rank
+      RANK() OVER (
+        ORDER BY SUM(t.area_m2) DESC, u.id ASC
+      ) AS rank
     FROM territories t
     JOIN users u ON u.id = t.owner_id
     WHERE t.week_id = ?
       AND (t.match_id = ? OR ? IS NULL)
     GROUP BY u.id, u.username
-    ORDER BY total_area_m2 DESC
+    ORDER BY total_area_m2 DESC, user_id ASC
   `;
 
   const params = [weekId, matchId ?? null, matchId ?? null];
 
   const [rows] = await pool.execute<LeaderboardRow[]>(sql, params);
 
-  // Map snake_case DB columns... This give a nice API shape
-  return rows.map(row => ({
+  // Convert the raw database row fields into the LeaderboardRecord shape
+  return rows.map((row) => ({
     userId: row.user_id,
     username: row.username,
     totalAreaM2: row.total_area_m2,
