@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, AuthedRequest } from '../../middleware/requireAuth.js';
+import type { AuthedRequest } from '../../middleware/auth/requireAuth.js';
 
 const router = Router();
 
@@ -10,7 +10,7 @@ const stats = {
   rank: 2,
 };
 
-router.get('/stats', requireAuth, (req: AuthedRequest, res) => {
+router.get('/stats', (req: AuthedRequest, res) => {
   res.json(stats);
 });
 

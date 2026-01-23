@@ -6,7 +6,7 @@
     "build": "tsc",
     "dev": "nodemon --watch src --ext ts --exec \"npm run build --silent && node dist/index.js\"",
     "start": "node dist/index.js",
-    "test": "node tests/smoke.test.js && node tests/build.test.js && node tests/src-structure.test.js && node tests/auth.integration.test.js",
+    "test": "node tests/smoke.test.js && node tests/build.test.js && node tests/src-structure.test.js && node tests/auth.jwt.test.js && node tests/auth.integration.test.js",
     "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
     "lint:fix": "npm run lint -- --fix",
     "prepare": "husky"
@@ -16,6 +16,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.15.3",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"

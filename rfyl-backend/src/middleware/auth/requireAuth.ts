@@ -10,6 +10,23 @@ export interface AuthedRequest extends Request {
   user?: AuthedUser;
 }
 
+const isAuthedUserPayload = (payload: unknown): payload is AuthedUser => {
+  if (typeof payload !== 'object' || payload === null) {
+    return false;
+  }
+
+  const candidate = payload as { id?: unknown; email?: unknown };
+  if (typeof candidate.id !== 'number' || !Number.isFinite(candidate.id)) {
+    return false;
+  }
+
+  if (candidate.email !== undefined && typeof candidate.email !== 'string') {
+    return false;
+  }
+
+  return true;
+};
+
 export function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
 
@@ -25,7 +42,11 @@ export function requireAuth(req: AuthedRequest, res: Response, next: NextFunctio
   }
 
   try {
-    const payload = jwt.verify(token, secret) as AuthedUser;
+    const payload = jwt.verify(token, secret);
+    if (!isAuthedUserPayload(payload)) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+
     req.user = payload;
     return next();
   } catch {

@@ -6,7 +6,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import './config/env.js';
 import { swaggerUi, specs } from './config/swaggerConfig';
 //Middleware here
-import { requestLogger, errorLogger } from './middleware/index';
+import { requestLogger, errorLogger, requireAuth } from './middleware/index';
 //Routes here
 import authRoutes from './routes/auth/index.js';
 import leaderboardRoutes from './routes/leaderboard/index.js';
@@ -25,8 +25,8 @@ app.use(requestLogger);
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 app.use('/api/auth', authRoutes);
-app.use('/api/profile', profileRoutes);
-app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/profile', requireAuth, profileRoutes);
+app.use('/api/leaderboard', requireAuth, leaderboardRoutes);
 
 app.use(errorLogger);
 //Final error handler middleware
