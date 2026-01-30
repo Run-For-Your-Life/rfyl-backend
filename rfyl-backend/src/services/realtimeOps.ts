@@ -12,11 +12,25 @@ export function createGeometryOps(): GeometryOps {
     union: (territory: TerritoryFeature, captured: TerritoryFeature) => {
       const collection = toFeatureCollection(territory, captured);
       const result = union(collection);
+      if (process.env.DEBUG_CAPTURE === '1') {
+        console.warn('[capture] union', {
+          inputType: territory.geometry.type,
+          capturedType: captured.geometry.type,
+          outputType: result?.geometry.type,
+        });
+      }
       return result ? toTerritoryFeature(result, territory.properties.userId) : territory;
     },
     difference: (territory: TerritoryFeature, captured: TerritoryFeature) => {
       const collection = toFeatureCollection(territory, captured);
       const result = difference(collection);
+      if (process.env.DEBUG_CAPTURE === '1') {
+        console.warn('[capture] difference', {
+          inputType: territory.geometry.type,
+          capturedType: captured.geometry.type,
+          outputType: result?.geometry.type,
+        });
+      }
       return result ? toTerritoryFeature(result, territory.properties.userId) : null;
     },
   };
