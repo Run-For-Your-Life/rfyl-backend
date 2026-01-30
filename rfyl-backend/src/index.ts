@@ -11,6 +11,7 @@ import { requestLogger, errorLogger, requireAuth } from './middleware/index';
 import authRoutes from './routes/auth/index.js';
 import leaderboardRoutes from './routes/leaderboard/index.js';
 import profileRoutes from './routes/profile/index.js';
+import mapsRoutes from './routes/maps/index.js';
 
 const app = express();
 app.use(express.json());

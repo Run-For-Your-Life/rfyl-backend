@@ -12,7 +12,14 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "bcrypt": "^5.1.1",
+    "@turf/bbox": "^7.3.2",
+    "@turf/boolean-point-in-polygon": "^7.3.2",
+    "@turf/difference": "^7.3.2",
+    "@turf/helpers": "^7.3.2",
+    "@turf/line-intersect": "^7.3.2",
+    "@turf/polygon-to-line": "^7.3.2",
+    "@turf/union": "^7.3.2",
+    "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
