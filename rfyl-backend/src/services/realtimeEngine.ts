@@ -310,10 +310,24 @@ function closePath(
     return events;
   }
 
+  if (process.env.DEBUG_CAPTURE === '1') {
+    console.warn('[capture] closing path', {
+      mapId: state.mapId,
+      userId: player.userId,
+      pathPoints: pathPositions.length,
+    });
+  }
+
   const ring = getOuterRing(player.territory);
   const split = splitRingAtPoints(ring, exitPoint, reentry);
   const boundary = chooseBoundarySegment(pathPositions, split.forward, split.backward);
   const ringClosed = buildClosedRing(pathPositions, boundary);
+  if (process.env.DEBUG_CAPTURE === '1') {
+    console.warn('[capture] ring sizes', {
+      boundaryPoints: boundary.length,
+      ringClosedPoints: ringClosed.length,
+    });
+  }
   const captured: TerritoryFeature = {
     type: 'Feature',
     geometry: {
@@ -328,16 +342,14 @@ function closePath(
 
   player.territory = ops.union(player.territory, captured);
   player.territory.properties.updatedAt = Date.now();
+  updateTerritoryMetrics(player);
   events.push({
     type: 'territory',
     mapId: state.mapId,
     userId: player.userId,
     territory: player.territory,
   });
-  if (player.ghostState !== 'player') {
-    updateTerritoryMetrics(player);
-    events.push(buildStateEvent(state.mapId, player));
-  }
+  events.push(buildStateEvent(state.mapId, player));
 
   for (const [otherId, otherPlayer] of state.players.entries()) {
     if (otherId === player.userId || !otherPlayer.territory) {
@@ -350,16 +362,14 @@ function closePath(
     otherPlayer.territory = updated;
     if (updated) {
       updated.properties.updatedAt = Date.now();
+      updateTerritoryMetrics(otherPlayer);
       events.push({
         type: 'territory',
         mapId: state.mapId,
         userId: otherId,
         territory: updated,
       });
-      if (otherPlayer.ghostState !== 'player') {
-        updateTerritoryMetrics(otherPlayer);
-        events.push(buildStateEvent(state.mapId, otherPlayer));
-      }
+      events.push(buildStateEvent(state.mapId, otherPlayer));
     }
   }
 
