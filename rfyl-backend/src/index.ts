@@ -4,6 +4,7 @@ import express, { Request, Response, NextFunction } from 'express';
 
 //Config here
 import './config/env.js';
+import { getEnv } from './config/env.js';
 import { swaggerUi, specs } from './config/swaggerConfig';
 //Middleware here
 import { requestLogger, errorLogger } from './middleware/index';
@@ -16,10 +17,21 @@ import mapsRoutes from './routes/maps/index.js';
 const app = express();
 app.use(express.json());
 
+const allowedOrigins = getEnv('ALLOWED_ORIGINS', '').split(',').map((origin) => origin.trim()).filter(Boolean);
+
 app.use(cors({
-    origin: '*', //for testing
+    origin: (origin, callback) => {
+        if (!origin) {
+            return callback(null, true);
+        }
+        if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
 }));
 
 app.use(requestLogger);
