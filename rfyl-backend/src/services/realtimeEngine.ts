@@ -251,16 +251,9 @@ function extendPath(
       segmentStart,
       segmentEnd
     );
-    if (selfKnockout && canBeKnocked(player)) {
+    if (selfKnockout) {
       events.push(knockoutPlayer(state.mapId, player, player.userId, 'self-cross'));
-      if (player.ghostState !== 'player') {
-        events.push(buildStateEvent(state.mapId, player));
-      }
-      return events;
-    }
-    if (selfKnockout && !canBeKnocked(player)) {
-      player.path.pop();
-      player.pathLengthMeters = Math.max(0, player.pathLengthMeters - segmentDistanceMeters(lastPathPoint, point));
+      events.push(buildStateEvent(state.mapId, player));
       return events;
     }
 
