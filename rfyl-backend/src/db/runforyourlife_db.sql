@@ -1,323 +1,177 @@
--- phpMyAdmin SQL Dump
--- version 5.2.2
--- https://www.phpmyadmin.net/
---
--- Host: localhost:3306
--- Generation Time: Nov 07, 2025 at 04:38 PM
--- Server version: 10.6.23-MariaDB-cll-lve
--- PHP Version: 8.3.25
-SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';
-START TRANSACTION;
-SET time_zone = '+00:00';
+create table users
+(
+    id            bigint unsigned auto_increment
+        primary key,
+    username      varchar(40)                         not null,
+    email         varchar(255)                        not null,
+    password_hash varchar(255)                        not null,
+    created_at    timestamp default CURRENT_TIMESTAMP not null,
+    updated_at    timestamp default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
+    constraint users_email_uq
+        unique (email),
+    constraint users_username_uq
+        unique (username)
+)
+    collate = utf8mb4_unicode_ci;
 
-USE runforyourlife_db;
+create table weeks
+(
+    id         bigint unsigned auto_increment
+        primary key,
+    starts_on  date                                not null,
+    ends_on    date                                not null,
+    created_at timestamp default CURRENT_TIMESTAMP not null,
+    constraint weeks_starts_on_uq
+        unique (starts_on),
+    constraint weeks_range_chk
+        check (`ends_on` > `starts_on`)
+)
+    collate = utf8mb4_unicode_ci;
 
+create table matches
+(
+    id         bigint unsigned auto_increment
+        primary key,
+    created_by bigint unsigned                                                                null,
+    week_id    bigint unsigned                                                                null,
+    map_key    varchar(64)                                                                    null,
+    mode       varchar(32)                                          default 'skirmish'        not null,
+    starts_at  datetime                                                                       not null,
+    ends_at    datetime                                                                       null,
+    status     enum ('scheduled', 'active', 'finished', 'canceled') default 'scheduled'       not null,
+    name       varchar(80)                                                                    null,
+    created_at timestamp                                            default CURRENT_TIMESTAMP not null,
+    updated_at timestamp                                            default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
+    constraint matches_map_key_uq
+        unique (map_key),
+    constraint matches_created_by_fk
+        foreign key (created_by) references users (id)
+            on update cascade on delete set null,
+    constraint matches_week_fk
+        foreign key (week_id) references weeks (id)
+            on update cascade on delete set null,
+    constraint matches_time_chk
+        check ((`ends_at` is null) or (`ends_at` >= `starts_at`))
+)
+    collate = utf8mb4_unicode_ci;
 
-/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
-/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
-/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
-/*!40101 SET NAMES utf8mb4 */;
+create table map_sessions
+(
+    id         varchar(64)                                           not null
+        primary key,
+    week_id    bigint unsigned                                       null,
+    match_id   bigint unsigned                                       null,
+    status     enum ('active', 'archived') default 'active'          not null,
+    name       varchar(100)                                          null,
+    starts_at  datetime                    default CURRENT_TIMESTAMP not null,
+    ends_at    datetime                                              null,
+    created_at timestamp                   default CURRENT_TIMESTAMP not null,
+    updated_at timestamp                   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
+    constraint map_sessions_match_fk
+        foreign key (match_id) references matches (id)
+            on update cascade on delete set null,
+    constraint map_sessions_week_fk
+        foreign key (week_id) references weeks (id)
+            on update cascade on delete set null,
+    constraint map_sessions_time_chk
+        check ((`ends_at` is null) or (`ends_at` >= `starts_at`))
+)
+    collate = utf8mb4_unicode_ci;
 
---
--- Database: `runforyourlife_db`
---
+create index map_sessions_scope_idx
+    on map_sessions (week_id, match_id);
 
--- --------------------------------------------------------
+create index matches_creator_idx
+    on matches (created_by);
 
---
--- Table structure for table `claim_attempts`
---
+create index matches_status_starts_idx
+    on matches (status, starts_at);
 
-CREATE TABLE `claim_attempts` (
-  `id` bigint(20) NOT NULL,
-  `run_id` bigint(20) NOT NULL,
-  `user_id` bigint(20) NOT NULL,
-  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
-  `polygon` geometry NOT NULL,
-  `area_m2` double NOT NULL,
-  `week_id` bigint(20) DEFAULT NULL,
-  `match_id` bigint(20) DEFAULT NULL,
-  `status` enum('pending','accepted','rejected') NOT NULL DEFAULT 'pending',
-  `reject_reason` text DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+create index matches_week_idx
+    on matches (week_id);
 
--- --------------------------------------------------------
+create table runs
+(
+    id            bigint unsigned auto_increment
+        primary key,
+    user_id       bigint unsigned                       not null,
+    map_id        varchar(64)                           null,
+    week_id       bigint unsigned                       null,
+    match_id      bigint unsigned                       null,
+    started_at    datetime                              not null,
+    ended_at      datetime                              not null,
+    distance_m    double                                not null,
+    route_geojson longtext collate utf8mb4_bin          not null,
+    source        varchar(32) default 'mobile'          null,
+    created_at    timestamp   default CURRENT_TIMESTAMP not null,
+    constraint runs_map_fk
+        foreign key (map_id) references map_sessions (id)
+            on update cascade on delete set null,
+    constraint runs_match_fk
+        foreign key (match_id) references matches (id)
+            on update cascade on delete set null,
+    constraint runs_user_fk
+        foreign key (user_id) references users (id)
+            on update cascade on delete cascade,
+    constraint runs_week_fk
+        foreign key (week_id) references weeks (id)
+            on update cascade on delete set null,
+    constraint runs_distance_chk
+        check (`distance_m` >= 0),
+    constraint runs_route_json_chk
+        check (json_valid(`route_geojson`)),
+    constraint runs_time_chk
+        check (`ended_at` >= `started_at`)
+)
+    collate = utf8mb4_unicode_ci;
 
---
--- Table structure for table `leaderboards`
---
+create index runs_map_idx
+    on runs (map_id);
 
-CREATE TABLE `leaderboards` (
-  `id` bigint(20) NOT NULL,
-  `week_id` bigint(20) DEFAULT NULL,
-  `match_id` bigint(20) DEFAULT NULL,
-  `user_id` bigint(20) NOT NULL,
-  `total_area_m2` double NOT NULL,
-  `rank` int(11) NOT NULL,
-  `refreshed_at` datetime NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+create index runs_scope_idx
+    on runs (week_id, match_id);
 
--- --------------------------------------------------------
+create index runs_user_time_idx
+    on runs (user_id, started_at);
 
---
--- Table structure for table `matches`
---
+create table territories
+(
+    id         bigint unsigned auto_increment
+        primary key,
+    owner_id   bigint unsigned                    not null,
+    map_id     varchar(64)                        null,
+    week_id    bigint unsigned                    null,
+    match_id   bigint unsigned                    null,
+    polygon    geometry                           not null,
+    area_m2    double                             not null,
+    claimed_at datetime default CURRENT_TIMESTAMP not null,
+    updated_at datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
+    constraint terr_map_fk
+        foreign key (map_id) references map_sessions (id)
+            on update cascade on delete set null,
+    constraint terr_match_fk
+        foreign key (match_id) references matches (id)
+            on update cascade on delete set null,
+    constraint terr_owner_fk
+        foreign key (owner_id) references users (id)
+            on update cascade on delete cascade,
+    constraint terr_week_fk
+        foreign key (week_id) references weeks (id)
+            on update cascade on delete set null,
+    constraint terr_area_chk
+        check (`area_m2` >= 0)
+)
+    collate = utf8mb4_unicode_ci;
 
-CREATE TABLE `matches` (
-  `id` bigint(20) NOT NULL,
-  `created_by` bigint(20) DEFAULT NULL,
-  `mode` varchar(32) NOT NULL DEFAULT 'skirmish',
-  `starts_at` datetime NOT NULL,
-  `ends_at` datetime DEFAULT NULL,
-  `status` enum('scheduled','active','finished','canceled') NOT NULL DEFAULT 'scheduled',
-  `name` varchar(80) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+create index terr_map_owner_idx
+    on territories (map_id, owner_id);
 
---
--- Dumping data for table `matches`
---
+create index terr_owner_idx
+    on territories (owner_id);
 
-INSERT INTO `matches` (`id`, `created_by`, `mode`, `starts_at`, `ends_at`, `status`, `name`) VALUES
-(1, 1, 'skirmish', '2025-10-05 11:16:21', NULL, 'active', 'Local Test Match');
+create spatial index terr_poly_gix
+    on territories (polygon);
 
--- --------------------------------------------------------
-
---
--- Table structure for table `runs`
---
-
-CREATE TABLE `runs` (
-  `id` bigint(20) NOT NULL,
-  `user_id` bigint(20) NOT NULL,
-  `started_at` datetime NOT NULL,
-  `ended_at` datetime NOT NULL,
-  `distance_m` double NOT NULL,
-  `route_geojson` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`route_geojson`)),
-  `source` varchar(32) DEFAULT 'mobile',
-  `week_id` bigint(20) DEFAULT NULL,
-  `match_id` bigint(20) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `run_points`
---
-
-CREATE TABLE `run_points` (
-  `run_id` bigint(20) NOT NULL,
-  `idx` int(11) NOT NULL,
-  `t` datetime NOT NULL,
-  `position` point NOT NULL,
-  `speed_mps` float DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `territories`
---
-
-CREATE TABLE `territories` (
-  `id` bigint(20) NOT NULL,
-  `owner_id` bigint(20) NOT NULL,
-  `polygon` geometry NOT NULL,
-  `area_m2` double NOT NULL,
-  `claimed_at` datetime NOT NULL DEFAULT current_timestamp(),
-  `week_id` bigint(20) NOT NULL,
-  `match_id` bigint(20) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `territory_history`
---
-
-CREATE TABLE `territory_history` (
-  `id` bigint(20) NOT NULL,
-  `territory_id` bigint(20) DEFAULT NULL,
-  `event_time` datetime NOT NULL DEFAULT current_timestamp(),
-  `event_type` varchar(32) NOT NULL,
-  `old_owner_id` bigint(20) DEFAULT NULL,
-  `new_owner_id` bigint(20) DEFAULT NULL,
-  `geometry` geometry DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `users`
---
-
-CREATE TABLE `users` (
-  `id` bigint(20) NOT NULL,
-  `username` varchar(40) NOT NULL,
-  `email` varchar(255) NOT NULL,
-  `password_hash` varchar(255) NOT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-
---
--- Dumping data for table `users`
---
-
--- Password hashes here are placeholders; replace with valid bcrypt hashes if you keep seed users.
-INSERT INTO `users` (`id`, `username`, `email`, `password_hash`, `created_at`) VALUES
-(1, 'alice', 'alice@example.com', '$2b$10$exampleexampleexampleexampleexa', '2025-10-05 18:16:21'),
-(2, 'bob', 'bob@example.com', '$2b$10$exampleexampleexampleexampleexa', '2025-10-05 18:16:21');
-
--- --------------------------------------------------------
-
---
--- Table structure for table `weeks`
---
-
-CREATE TABLE `weeks` (
-  `id` bigint(20) NOT NULL,
-  `starts_on` date NOT NULL,
-  `ends_on` date NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-
---
--- Dumping data for table `weeks`
---
-
-INSERT INTO `weeks` (`id`, `starts_on`, `ends_on`) VALUES
-(1, '2025-10-05', '2025-10-12');
-
---
--- Indexes for dumped tables
---
-
---
--- Indexes for table `claim_attempts`
---
-ALTER TABLE `claim_attempts`
-  ADD PRIMARY KEY (`id`),
-  ADD SPATIAL KEY `claim_poly_gix` (`polygon`),
-  ADD KEY `claim_user_idx` (`user_id`),
-  ADD KEY `claim_scope_week_idx` (`week_id`),
-  ADD KEY `claim_scope_match_idx` (`match_id`);
-
---
--- Indexes for table `leaderboards`
---
-ALTER TABLE `leaderboards`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `uniq_scope_user` (`week_id`,`match_id`,`user_id`);
-
---
--- Indexes for table `matches`
---
-ALTER TABLE `matches`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `matches_creator_idx` (`created_by`),
-  ADD KEY `matches_time_idx` (`starts_at`);
-
---
--- Indexes for table `runs`
---
-ALTER TABLE `runs`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `runs_user_time` (`user_id`,`started_at`),
-  ADD KEY `runs_week_idx` (`week_id`),
-  ADD KEY `runs_match_idx` (`match_id`);
-
---
--- Indexes for table `run_points`
---
-ALTER TABLE `run_points`
-  ADD PRIMARY KEY (`run_id`,`idx`),
-  ADD SPATIAL KEY `run_points_pos_gix` (`position`);
-
---
--- Indexes for table `territories`
---
-ALTER TABLE `territories`
-  ADD PRIMARY KEY (`id`),
-  ADD SPATIAL KEY `terr_poly_gix` (`polygon`),
-  ADD KEY `terr_owner_idx` (`owner_id`),
-  ADD KEY `terr_week_idx` (`week_id`),
-  ADD KEY `terr_match_idx` (`match_id`);
-
---
--- Indexes for table `territory_history`
---
-ALTER TABLE `territory_history`
-  ADD PRIMARY KEY (`id`);
-
---
--- Indexes for table `users`
---
-ALTER TABLE `users`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `username` (`username`),
-  ADD UNIQUE KEY `email` (`email`);
-
---
--- Indexes for table `weeks`
---
-ALTER TABLE `weeks`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `uniq_week` (`starts_on`);
-
---
--- AUTO_INCREMENT for dumped tables
---
-
---
--- AUTO_INCREMENT for table `claim_attempts`
---
-ALTER TABLE `claim_attempts`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `leaderboards`
---
-ALTER TABLE `leaderboards`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `matches`
---
-ALTER TABLE `matches`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
-
---
--- AUTO_INCREMENT for table `runs`
---
-ALTER TABLE `runs`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `territories`
---
-ALTER TABLE `territories`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `territory_history`
---
-ALTER TABLE `territory_history`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `users`
---
-ALTER TABLE `users`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
-
---
--- AUTO_INCREMENT for table `weeks`
---
-ALTER TABLE `weeks`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
-COMMIT;
-
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
-
-
+create index terr_week_match_owner_idx
+    on territories (week_id, match_id, owner_id);
 
