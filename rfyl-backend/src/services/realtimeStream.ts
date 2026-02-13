@@ -1,4 +1,5 @@
 import type { Response } from 'express';
+
 import type { RealtimeEvent } from './realtimeEngine';
 
 type ClientPool = Map<string, Set<Response>>;

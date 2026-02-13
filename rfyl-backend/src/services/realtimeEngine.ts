@@ -155,7 +155,7 @@ export function ingestLocation(
     return events;
   }
 
-  const pathEvents = extendPath(state, player, point, ops);
+  const pathEvents = extendPath(state, player, point);
   events.push(...pathEvents);
   return events;
 }
@@ -218,8 +218,7 @@ function createInitialTerritory(userId: string, point: GeoPoint): TerritoryFeatu
 function extendPath(
   state: MapState,
   player: PlayerState,
-  point: GeoPoint,
-  ops: GeometryOps
+  point: GeoPoint
 ): RealtimeEvent[] {
   const events: RealtimeEvent[] = [];
   if (!player.territory) {
