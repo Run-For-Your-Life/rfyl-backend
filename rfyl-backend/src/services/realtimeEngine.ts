@@ -48,6 +48,12 @@ export type RealtimeEvent =
       userId: string;
       byUserId: string;
       reason: KnockoutReason;
+    }
+  | {
+      type: 'reset';
+      mapId: string;
+      userId: string;
+      reason: 'manual';
     };
 
 export type GeometryOps = {

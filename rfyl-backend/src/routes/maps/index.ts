@@ -1,5 +1,14 @@
 import { Router, Request, Response } from 'express';
-import { getMapSnapshot, ingestLocation, respawnPlayer, type RealtimeEvent } from '../../services/realtimeEngine';
+import { timingSafeEqual } from 'node:crypto';
+import {
+  clearMapState,
+  getMapSnapshot,
+  ingestLocation,
+  respawnPlayer,
+  type MapSnapshot,
+  type RealtimeEvent,
+} from '../../services/realtimeEngine';
+import { getEnv } from '../../config/env';
 import { createGeometryOps } from '../../services/realtimeOps';
 import { appendRealtimeWal } from '../../services/realtimePersistence';
 import { broadcastEvents, registerRealtimeClient, removeRealtimeClient } from '../../services/realtimeStream';
@@ -110,5 +119,58 @@ router.post('/:mapId/players/:userId/respawn', (req: Request, res: Response) => 
   broadcastEvents(mapId, events);
   res.status(200).json({ ok: true });
 });
+
+router.post('/:mapId/reset', (req: Request, res: Response) => {
+  const { mapId } = req.params;
+  if (!mapId) {
+    res.status(400).json({ error: 'mapId is required' });
+    return;
+  }
+
+  const expectedPassword = getEnv('MAP_RESET_PASSWORD');
+  if (!expectedPassword) {
+    res.status(503).json({ error: 'map reset endpoint is disabled' });
+    return;
+  }
+
+  const bodyPassword =
+    typeof (req.body as { password?: unknown })?.password === 'string'
+      ? ((req.body as { password?: string }).password ?? '')
+      : '';
+  const headerValue = req.header('x-map-reset-password');
+  const providedPassword = bodyPassword || (headerValue ?? '');
+
+  if (!providedPassword || !matchesPassword(providedPassword, expectedPassword)) {
+    res.status(403).json({ error: 'invalid reset password' });
+    return;
+  }
+
+  const existing = getMapSnapshot(mapId);
+  clearMapState(mapId);
+
+  const resetEvent: RealtimeEvent = {
+    type: 'reset',
+    mapId,
+    userId: 'system',
+    reason: 'manual',
+  };
+  const resetSnapshot: MapSnapshot = {
+    mapId,
+    players: [],
+  };
+  appendRealtimeWal(mapId, [resetEvent], resetSnapshot);
+  broadcastEvents(mapId, [resetEvent]);
+
+  res.status(200).json({ ok: true, mapId, cleared: Boolean(existing) });
+});
+
+function matchesPassword(providedPassword: string, expectedPassword: string): boolean {
+  const provided = Buffer.from(providedPassword);
+  const expected = Buffer.from(expectedPassword);
+  if (provided.length !== expected.length) {
+    return false;
+  }
+  return timingSafeEqual(provided, expected);
+}
 
 export default router;

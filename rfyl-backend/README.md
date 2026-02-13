@@ -20,6 +20,17 @@ Cloud profile reads `../.env`.
 - `npm run test:integration:db`: starts local MySQL, runs DB-backed realtime persistence integration test, then stops MySQL.
 - `npm run test:all`: runs `npm test` and then `npm run test:integration:db`.
 
+## Manual map reset endpoint
+Set `MAP_RESET_PASSWORD` in your env profile, then call:
+
+```bash
+curl -X POST "http://localhost:2000/api/maps/<mapId>/reset" \
+  -H "Content-Type: application/json" \
+  -d '{"password":"<MAP_RESET_PASSWORD>"}'
+```
+
+You can also pass the password via header: `x-map-reset-password`.
+
 ## CloudSQL proxy command
 cloud-sql-proxy \
   --credentials-file /absolute/path/to/ceremonial-tea-477623-h6-45d4b7b2d842.json \

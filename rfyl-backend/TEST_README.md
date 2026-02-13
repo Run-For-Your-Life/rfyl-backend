@@ -4,7 +4,7 @@
 
 - `npm test`
   - Fast default suite.
-  - Includes smoke+build+structure+auth integration and realtime logic tests
+  - Includes smoke+build+structure+auth integration, realtime logic tests, and map reset route tests.
   - Does NOT spin up Docker services
 
 - `npm run test:integration:db`
