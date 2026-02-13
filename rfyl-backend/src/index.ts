@@ -6,6 +6,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import './config/env.js';
 import { getEnv } from './config/env.js';
 import { swaggerUi, specs } from './config/swaggerConfig';
+import { startRealtimeWalFlusher, stopRealtimeWalFlusher } from './services/realtimePersistence.js';
 //Middleware here
 import { requestLogger, errorLogger } from './middleware/index';
 //Routes here
@@ -63,6 +64,20 @@ function isHttpError(value: unknown): value is HttpError {
 }
 
 const PORT = process.env.PORT || 1000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.warn(`Server is running on port ${PORT}`);
-})
+  startRealtimeWalFlusher();
+});
+
+const shutdown = async () => {
+  await stopRealtimeWalFlusher();
+  server.close(() => process.exit(0));
+};
+
+process.on('SIGINT', () => {
+  void shutdown();
+});
+
+process.on('SIGTERM', () => {
+  void shutdown();
+});

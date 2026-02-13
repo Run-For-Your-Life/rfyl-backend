@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getMapSnapshot, ingestLocation, respawnPlayer, type RealtimeEvent } from '../../services/realtimeEngine';
 import { createGeometryOps } from '../../services/realtimeOps';
+import { appendRealtimeWal } from '../../services/realtimePersistence';
 import { broadcastEvents, registerRealtimeClient, removeRealtimeClient } from '../../services/realtimeStream';
 
 const router = Router();
@@ -40,6 +41,11 @@ router.post('/:mapId/locations', (req: Request, res: Response) => {
     const updateEvents = ingestLocation(mapId, userId, update, geometryOps);
     events.push(...updateEvents);
     accepted += 1;
+  }
+
+  const snapshot = getMapSnapshot(mapId);
+  if (snapshot) {
+    appendRealtimeWal(mapId, events, snapshot);
   }
 
   broadcastEvents(mapId, events);
@@ -96,6 +102,10 @@ router.post('/:mapId/players/:userId/respawn', (req: Request, res: Response) => 
   if (events.length === 0) {
     res.status(409).json({ error: 'player not eligible to respawn' });
     return;
+  }
+  const snapshot = getMapSnapshot(mapId);
+  if (snapshot) {
+    appendRealtimeWal(mapId, events, snapshot);
   }
   broadcastEvents(mapId, events);
   res.status(200).json({ ok: true });

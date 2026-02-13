@@ -1,0 +1,23 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: rfyl-local-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: runforyourlife_db
+      MYSQL_USER: rfyl_user
+      MYSQL_PASSWORD: rfyl_local_password
+      MYSQL_ROOT_PASSWORD: rfyl_root_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - rfyl_mysql_data:/var/lib/mysql
+      - ./src/db/runforyourlife_db.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-prfyl_root_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  rfyl_mysql_data:

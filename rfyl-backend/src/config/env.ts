@@ -3,8 +3,21 @@ import path from 'node:path';
 
 import dotenv from 'dotenv';
 
+const profile = process.env.ENV_PROFILE?.trim();
+const profileCandidates = profile
+    ? [
+          `.env.${profile}.local`,
+          `../.env.${profile}.local`,
+          `.env.${profile}`,
+          `../.env.${profile}`,
+      ]
+    : [];
+
 const candidateEnvFiles = [
     process.env.ENV_FILE,
+    ...profileCandidates,
+    '.env.local',
+    '../.env.local',
     '.env',
     '../.env',
 ].filter(Boolean) as string[];

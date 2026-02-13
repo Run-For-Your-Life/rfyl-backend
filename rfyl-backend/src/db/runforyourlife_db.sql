@@ -179,6 +179,35 @@ CREATE TABLE `weeks` (
   `ends_on` date NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `realtime_events`
+--
+
+CREATE TABLE `realtime_events` (
+  `event_id` varchar(128) NOT NULL,
+  `map_id` varchar(64) NOT NULL,
+  `user_id` varchar(64) NOT NULL,
+  `event_type` varchar(32) NOT NULL,
+  `payload_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`payload_json`)),
+  `occurred_at` datetime NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `realtime_map_snapshots`
+--
+
+CREATE TABLE `realtime_map_snapshots` (
+  `map_id` varchar(64) NOT NULL,
+  `snapshot_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`snapshot_json`)),
+  `updated_at` datetime NOT NULL,
+  `last_event_id` varchar(128) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
 --
 -- Dumping data for table `weeks`
 --
@@ -263,6 +292,19 @@ ALTER TABLE `weeks`
   ADD UNIQUE KEY `uniq_week` (`starts_on`);
 
 --
+-- Indexes for table `realtime_events`
+--
+ALTER TABLE `realtime_events`
+  ADD PRIMARY KEY (`event_id`),
+  ADD KEY `realtime_events_map_time_idx` (`map_id`,`occurred_at`);
+
+--
+-- Indexes for table `realtime_map_snapshots`
+--
+ALTER TABLE `realtime_map_snapshots`
+  ADD PRIMARY KEY (`map_id`);
+
+--
 -- AUTO_INCREMENT for dumped tables
 --
 
@@ -318,6 +360,5 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
-
 
 
