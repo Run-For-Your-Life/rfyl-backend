@@ -21,10 +21,13 @@ const ops = createGeometryOps();
 
 console.log("Running realtime gameplay tests...");
 
+const expectedUsername = (userId) => `name-${userId}`;
+
 const createSender = (mapId, userId) => {
   let ts = 1;
+  const username = expectedUsername(userId);
   return (lat, lng) =>
-    ingestLocation(mapId, userId, { lat, lng, ts: ts++ }, ops);
+    ingestLocation(mapId, userId, { lat, lng, ts: ts++ }, ops, username);
 };
 
 const getPlayer = (mapId, userId) => {
@@ -32,6 +35,7 @@ const getPlayer = (mapId, userId) => {
   assert.ok(snapshot, "expected snapshot for map");
   const player = snapshot.players.find((p) => p.userId === userId);
   assert.ok(player, "expected player state");
+  assert.strictEqual(player.username, expectedUsername(userId), "expected player username in snapshot");
   return player;
 };
 
@@ -178,6 +182,8 @@ try {
       (event) => event.type === "knockout" && event.userId === userId
     );
     assert.ok(knocked, "expected self-cross to knock out player");
+    assert.strictEqual(knocked.username, expectedUsername(userId), "expected knocked username");
+    assert.strictEqual(knocked.byUsername, expectedUsername(userId), "expected self knockout byUsername");
     const after = getPlayer(mapId, userId);
     assert.strictEqual(after.isOutside, false, "expected player to be inside after knockout");
     assert.strictEqual(after.path, null, "expected path cleared after knockout");
@@ -251,6 +257,8 @@ try {
       (event) => event.type === "knockout" && event.userId === ghostId
     );
     assert.ok(knockedGhost, "expected vulnerable ghost to be knocked");
+    assert.strictEqual(knockedGhost.username, expectedUsername(ghostId), "expected knocked ghost username");
+    assert.strictEqual(knockedGhost.byUsername, expectedUsername(playerId), "expected attacker username");
     clearMapState(mapId);
   }
 

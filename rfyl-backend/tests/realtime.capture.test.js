@@ -20,10 +20,11 @@ try {
   const ops = createGeometryOps();
   const mapId = "capture-test";
   const userId = "player-1";
+  const username = "CaptureTester";
   let ts = 1;
 
   const send = (lat, lng) =>
-    ingestLocation(mapId, userId, { lat, lng, ts: ts++ }, ops);
+    ingestLocation(mapId, userId, { lat, lng, ts: ts++ }, ops, username);
 
   send(0, 0);
 
@@ -32,6 +33,7 @@ try {
 
   const player1 = snapshot1.players.find((p) => p.userId === userId);
   assert.ok(player1, "expected player state");
+  assert.strictEqual(player1.username, username, "expected username on player snapshot");
   assert.ok(player1.territory, "expected initial territory");
   const initialArea = player1.territoryAreaSqMeters;
 
@@ -62,11 +64,14 @@ try {
 
   const hasTerritoryEvent = events.some((event) => event.type === "territory");
   assert.ok(hasTerritoryEvent, "expected territory event on loop close");
+  const territoryEvent = events.find((event) => event.type === "territory");
+  assert.strictEqual(territoryEvent?.username, username, "expected territory event username");
 
   const snapshot2 = getMapSnapshot(mapId);
   assert.ok(snapshot2, "expected snapshot after capture");
   const player2 = snapshot2.players.find((p) => p.userId === userId);
   assert.ok(player2, "expected player state after capture");
+  assert.strictEqual(player2.username, username, "expected username persisted after capture");
   assert.strictEqual(player2.isOutside, false, "expected player to be inside after capture");
   assert.strictEqual(player2.path, null, "expected path to be cleared after capture");
   assert.ok(
