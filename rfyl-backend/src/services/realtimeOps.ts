@@ -1,7 +1,8 @@
-import difference from '@turf/difference';
-import union from '@turf/union';
+import turfDifference from '@turf/difference';
 import { featureCollection } from '@turf/helpers';
+import turfUnion from '@turf/union';
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson';
+
 import type { GeometryOps } from './realtimeEngine';
 import type { TerritoryFeature } from './realtimeTypes';
 
@@ -11,7 +12,7 @@ export function createGeometryOps(): GeometryOps {
   return {
     union: (territory: TerritoryFeature, captured: TerritoryFeature) => {
       const collection = toFeatureCollection(territory, captured);
-      const result = union(collection);
+      const result = turfUnion(collection);
       if (process.env.DEBUG_CAPTURE === '1') {
         console.warn('[capture] union', {
           inputType: territory.geometry.type,
@@ -23,7 +24,7 @@ export function createGeometryOps(): GeometryOps {
     },
     difference: (territory: TerritoryFeature, captured: TerritoryFeature) => {
       const collection = toFeatureCollection(territory, captured);
-      const result = difference(collection);
+      const result = turfDifference(collection);
       if (process.env.DEBUG_CAPTURE === '1') {
         console.warn('[capture] difference', {
           inputType: territory.geometry.type,

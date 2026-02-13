@@ -8,6 +8,7 @@ import {
     type PersistedRealtimeEvent,
     upsertMapSnapshots,
 } from '../db/realtimeStateStore.js';
+
 import type { MapSnapshot, RealtimeEvent } from './realtimeEngine.js';
 
 type WalBatchRecord = {

@@ -3,17 +3,18 @@ import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 
 //Config here
-import './config/env.js';
+// import './config/env.js';
 import { getEnv } from './config/env.js';
 import { swaggerUi, specs } from './config/swaggerConfig';
-import { startRealtimeWalFlusher, stopRealtimeWalFlusher } from './services/realtimePersistence.js';
 //Middleware here
 import { requestLogger, errorLogger } from './middleware/index';
 //Routes here
 import authRoutes from './routes/auth/index.js';
 import leaderboardRoutes from './routes/leaderboard/index.js';
-import profileRoutes from './routes/profile/index.js';
 import mapsRoutes from './routes/maps/index.js';
+import profileRoutes from './routes/profile/index.js';
+//Services here
+import { startRealtimeWalFlusher, stopRealtimeWalFlusher } from './services/realtimePersistence.js';
 
 const app = express();
 app.use(express.json());

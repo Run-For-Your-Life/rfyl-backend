@@ -1,5 +1,8 @@
-import { Router, Request, Response } from 'express';
 import { timingSafeEqual } from 'node:crypto';
+
+import { Router, Request, Response } from 'express';
+
+import { getEnv } from '../../config/env';
 import {
   clearMapState,
   getMapSnapshot,
@@ -8,7 +11,6 @@ import {
   type MapSnapshot,
   type RealtimeEvent,
 } from '../../services/realtimeEngine';
-import { getEnv } from '../../config/env';
 import { createGeometryOps } from '../../services/realtimeOps';
 import { appendRealtimeWal } from '../../services/realtimePersistence';
 import { broadcastEvents, registerRealtimeClient, removeRealtimeClient } from '../../services/realtimeStream';
