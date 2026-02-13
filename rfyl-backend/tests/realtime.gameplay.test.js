@@ -96,6 +96,26 @@ try {
     clearMapState(mapId);
   }
 
+  // Respawn does nothing when ghost is not eligible.
+  {
+    const mapId = "ghost-respawn-ineligible";
+    const userId = "ghost-0";
+    const send = createSender(mapId, userId);
+    send(0, 0);
+
+    const before = getPlayer(mapId, userId);
+    assert.strictEqual(before.ghostEligible, false);
+    assert.strictEqual(before.ghostState, "ghost_invulnerable");
+
+    const respawnEvents = respawnPlayer(mapId, userId);
+    assert.strictEqual(respawnEvents.length, 0, "expected no respawn events");
+
+    const after = getPlayer(mapId, userId);
+    assert.strictEqual(after.ghostEligible, false);
+    assert.strictEqual(after.ghostState, "ghost_invulnerable");
+    clearMapState(mapId);
+  }
+
   // Ghost becomes eligible after enough territory, respawn transitions to player.
   {
     const mapId = "ghost-respawn";
@@ -115,7 +135,32 @@ try {
     clearMapState(mapId);
   }
 
-  // Self-cross triggers knockout (player only).
+  // Invulnerable ghosts still knock themselves out on self-cross.
+  {
+    const mapId = "self-cross-invulnerable-ghost";
+    const userId = "ghost-self";
+    const send = createSender(mapId, userId);
+    send(0, 0);
+
+    const a = 0.0004;
+    const b = 0.0008;
+    send(-a, 0);
+    send(a, b);
+    send(-a, b);
+    const events = send(a, 0);
+
+    const knocked = events.find(
+      (event) => event.type === "knockout" && event.userId === userId
+    );
+    assert.ok(knocked, "expected self-cross to knock out invulnerable ghost");
+    const after = getPlayer(mapId, userId);
+    assert.strictEqual(after.isOutside, false, "expected ghost to be inside after knockout");
+    assert.strictEqual(after.path, null, "expected path cleared after knockout");
+    assert.strictEqual(after.ghostState, "ghost_invulnerable");
+    clearMapState(mapId);
+  }
+
+  // Self-cross triggers knockout (player).
   {
     const mapId = "self-cross";
     const userId = "player-self";
