@@ -1,174 +1,207 @@
+create table realtime_events
+(
+    event_id     varchar(128)                       not null
+        primary key,
+    map_id       varchar(64)                        not null,
+    user_id      varchar(64)                        not null,
+    event_type   varchar(32)                        not null,
+    payload_json longtext collate utf8mb4_bin       not null,
+    occurred_at  datetime                           not null,
+    created_at   datetime default CURRENT_TIMESTAMP not null,
+    constraint realtime_events_payload_json_chk
+        check (json_valid(`payload_json`))
+)
+    collate = utf8mb4_unicode_ci;
 
-USE runforyourlife_db;
+create index realtime_events_map_time_idx
+    on realtime_events (map_id, occurred_at);
 
-SET FOREIGN_KEY_CHECKS = 0;
-DROP TABLE IF EXISTS claim_attempts;
-DROP TABLE IF EXISTS leaderboards;
-DROP TABLE IF EXISTS lobby_users;
-DROP TABLE IF EXISTS lobbies;
-DROP TABLE IF EXISTS maps;
-DROP TABLE IF EXISTS run_points;
-DROP TABLE IF EXISTS territory_history;
-DROP TABLE IF EXISTS realtime_events;
-DROP TABLE IF EXISTS realtime_map_snapshots;
-DROP TABLE IF EXISTS runs;
-DROP TABLE IF EXISTS territories;
-DROP TABLE IF EXISTS map_sessions;
-DROP TABLE IF EXISTS matches;
-DROP TABLE IF EXISTS weeks;
-DROP TABLE IF EXISTS users;
-SET FOREIGN_KEY_CHECKS = 1;
+create table realtime_map_snapshots
+(
+    map_id        varchar(64)                  not null
+        primary key,
+    snapshot_json longtext collate utf8mb4_bin not null,
+    updated_at    datetime                     not null,
+    last_event_id varchar(128)                 not null,
+    constraint realtime_map_snapshots_json_chk
+        check (json_valid(`snapshot_json`))
+)
+    collate = utf8mb4_unicode_ci;
 
-CREATE TABLE users (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  username VARCHAR(40) NOT NULL,
-  email VARCHAR(255) NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  UNIQUE KEY users_username_uq (username),
-  UNIQUE KEY users_email_uq (email)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+create table users
+(
+    id            bigint unsigned auto_increment
+        primary key,
+    username      varchar(40)                         not null,
+    email         varchar(255)                        not null,
+    password_hash varchar(255)                        not null,
+    created_at    timestamp default CURRENT_TIMESTAMP not null,
+    updated_at    timestamp default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
+    constraint users_email_uq
+        unique (email),
+    constraint users_username_uq
+        unique (username)
+)
+    collate = utf8mb4_unicode_ci;
 
-CREATE TABLE weeks (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  starts_on DATE NOT NULL,
-  ends_on DATE NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  UNIQUE KEY weeks_starts_on_uq (starts_on),
-  CONSTRAINT weeks_range_chk CHECK (ends_on > starts_on)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+create table weeks
+(
+    id         bigint unsigned auto_increment
+        primary key,
+    starts_on  date                                not null,
+    ends_on    date                                not null,
+    created_at timestamp default CURRENT_TIMESTAMP not null,
+    constraint weeks_starts_on_uq
+        unique (starts_on),
+    constraint weeks_range_chk
+        check (`ends_on` > `starts_on`)
+)
+    collate = utf8mb4_unicode_ci;
 
-CREATE TABLE matches (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  created_by BIGINT UNSIGNED NULL,
-  week_id BIGINT UNSIGNED NULL,
-  map_key VARCHAR(64) NULL,
-  mode VARCHAR(32) NOT NULL DEFAULT 'skirmish',
-  starts_at DATETIME NOT NULL,
-  ends_at DATETIME NULL,
-  status ENUM('scheduled', 'active', 'finished', 'canceled') NOT NULL DEFAULT 'scheduled',
-  name VARCHAR(80) NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  UNIQUE KEY matches_map_key_uq (map_key),
-  KEY matches_creator_idx (created_by),
-  KEY matches_week_idx (week_id),
-  KEY matches_status_starts_idx (status, starts_at),
-  CONSTRAINT matches_created_by_fk
-    FOREIGN KEY (created_by) REFERENCES users (id)
-    ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT matches_week_fk
-    FOREIGN KEY (week_id) REFERENCES weeks (id)
-    ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT matches_time_chk CHECK (ends_at IS NULL OR ends_at >= starts_at)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+create table matches
+(
+    id         bigint unsigned auto_increment
+        primary key,
+    created_by bigint unsigned                                                                null,
+    week_id    bigint unsigned                                                                null,
+    map_key    varchar(64)                                                                    null,
+    mode       varchar(32)                                          default 'skirmish'        not null,
+    starts_at  datetime                                                                       not null,
+    ends_at    datetime                                                                       null,
+    status     enum ('scheduled', 'active', 'finished', 'canceled') default 'scheduled'       not null,
+    name       varchar(80)                                                                    null,
+    created_at timestamp                                            default CURRENT_TIMESTAMP not null,
+    updated_at timestamp                                            default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
+    constraint matches_map_key_uq
+        unique (map_key),
+    constraint matches_created_by_fk
+        foreign key (created_by) references users (id)
+            on update cascade on delete set null,
+    constraint matches_week_fk
+        foreign key (week_id) references weeks (id)
+            on update cascade on delete set null,
+    constraint matches_time_chk
+        check ((`ends_at` is null) or (`ends_at` >= `starts_at`))
+)
+    collate = utf8mb4_unicode_ci;
 
-CREATE TABLE map_sessions (
-  id VARCHAR(64) NOT NULL,
-  week_id BIGINT UNSIGNED NULL,
-  match_id BIGINT UNSIGNED NULL,
-  status ENUM('active', 'archived') NOT NULL DEFAULT 'active',
-  name VARCHAR(100) NULL,
-  starts_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  ends_at DATETIME NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  KEY map_sessions_scope_idx (week_id, match_id),
-  CONSTRAINT map_sessions_week_fk
-    FOREIGN KEY (week_id) REFERENCES weeks (id)
-    ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT map_sessions_match_fk
-    FOREIGN KEY (match_id) REFERENCES matches (id)
-    ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT map_sessions_time_chk CHECK (ends_at IS NULL OR ends_at >= starts_at)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+create table map_sessions
+(
+    id         varchar(64)                                           not null
+        primary key,
+    week_id    bigint unsigned                                       null,
+    match_id   bigint unsigned                                       null,
+    status     enum ('active', 'archived') default 'active'          not null,
+    name       varchar(100)                                          null,
+    starts_at  datetime                    default CURRENT_TIMESTAMP not null,
+    ends_at    datetime                                              null,
+    created_at timestamp                   default CURRENT_TIMESTAMP not null,
+    updated_at timestamp                   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
+    constraint map_sessions_match_fk
+        foreign key (match_id) references matches (id)
+            on update cascade on delete set null,
+    constraint map_sessions_week_fk
+        foreign key (week_id) references weeks (id)
+            on update cascade on delete set null,
+    constraint map_sessions_time_chk
+        check ((`ends_at` is null) or (`ends_at` >= `starts_at`))
+)
+    collate = utf8mb4_unicode_ci;
 
-CREATE TABLE runs (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  user_id BIGINT UNSIGNED NOT NULL,
-  map_id VARCHAR(64) NULL,
-  week_id BIGINT UNSIGNED NULL,
-  match_id BIGINT UNSIGNED NULL,
-  started_at DATETIME NOT NULL,
-  ended_at DATETIME NOT NULL,
-  distance_m DOUBLE NOT NULL,
-  route_geojson LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  source VARCHAR(32) NULL DEFAULT 'mobile',
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  KEY runs_user_time_idx (user_id, started_at),
-  KEY runs_scope_idx (week_id, match_id),
-  KEY runs_map_idx (map_id),
-  CONSTRAINT runs_user_fk
-    FOREIGN KEY (user_id) REFERENCES users (id)
-    ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT runs_week_fk
-    FOREIGN KEY (week_id) REFERENCES weeks (id)
-    ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT runs_match_fk
-    FOREIGN KEY (match_id) REFERENCES matches (id)
-    ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT runs_map_fk
-    FOREIGN KEY (map_id) REFERENCES map_sessions (id)
-    ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT runs_distance_chk CHECK (distance_m >= 0),
-  CONSTRAINT runs_time_chk CHECK (ended_at >= started_at),
-  CONSTRAINT runs_route_json_chk CHECK (json_valid(route_geojson))
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+create index map_sessions_scope_idx
+    on map_sessions (week_id, match_id);
 
-CREATE TABLE territories (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  owner_id BIGINT UNSIGNED NOT NULL,
-  map_id VARCHAR(64) NULL,
-  week_id BIGINT UNSIGNED NULL,
-  match_id BIGINT UNSIGNED NULL,
-  polygon GEOMETRY NOT NULL,
-  area_m2 DOUBLE NOT NULL,
-  claimed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  KEY terr_owner_idx (owner_id),
-  KEY terr_map_owner_idx (map_id, owner_id),
-  KEY terr_week_match_owner_idx (week_id, match_id, owner_id),
-  SPATIAL INDEX terr_poly_gix (polygon),
-  CONSTRAINT terr_owner_fk
-    FOREIGN KEY (owner_id) REFERENCES users (id)
-    ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT terr_week_fk
-    FOREIGN KEY (week_id) REFERENCES weeks (id)
-    ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT terr_match_fk
-    FOREIGN KEY (match_id) REFERENCES matches (id)
-    ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT terr_map_fk
-    FOREIGN KEY (map_id) REFERENCES map_sessions (id)
-    ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT terr_area_chk CHECK (area_m2 >= 0)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+create index matches_creator_idx
+    on matches (created_by);
 
-CREATE TABLE realtime_events (
-  event_id VARCHAR(128) NOT NULL,
-  map_id VARCHAR(64) NOT NULL,
-  user_id VARCHAR(64) NOT NULL,
-  event_type VARCHAR(32) NOT NULL,
-  payload_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  occurred_at DATETIME NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (event_id),
-  KEY realtime_events_map_time_idx (map_id, occurred_at),
-  CONSTRAINT realtime_events_payload_json_chk CHECK (json_valid(payload_json))
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+create index matches_status_starts_idx
+    on matches (status, starts_at);
 
-CREATE TABLE realtime_map_snapshots (
-  map_id VARCHAR(64) NOT NULL,
-  snapshot_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  updated_at DATETIME NOT NULL,
-  last_event_id VARCHAR(128) NOT NULL,
-  PRIMARY KEY (map_id),
-  CONSTRAINT realtime_map_snapshots_json_chk CHECK (json_valid(snapshot_json))
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+create index matches_week_idx
+    on matches (week_id);
+
+create table runs
+(
+    id            bigint unsigned auto_increment
+        primary key,
+    user_id       bigint unsigned                       not null,
+    map_id        varchar(64)                           null,
+    week_id       bigint unsigned                       null,
+    match_id      bigint unsigned                       null,
+    started_at    datetime                              not null,
+    ended_at      datetime                              not null,
+    distance_m    double                                not null,
+    route_geojson longtext collate utf8mb4_bin          not null,
+    source        varchar(32) default 'mobile'          null,
+    created_at    timestamp   default CURRENT_TIMESTAMP not null,
+    constraint runs_map_fk
+        foreign key (map_id) references map_sessions (id)
+            on update cascade on delete set null,
+    constraint runs_match_fk
+        foreign key (match_id) references matches (id)
+            on update cascade on delete set null,
+    constraint runs_user_fk
+        foreign key (user_id) references users (id)
+            on update cascade on delete cascade,
+    constraint runs_week_fk
+        foreign key (week_id) references weeks (id)
+            on update cascade on delete set null,
+    constraint runs_distance_chk
+        check (`distance_m` >= 0),
+    constraint runs_route_json_chk
+        check (json_valid(`route_geojson`)),
+    constraint runs_time_chk
+        check (`ended_at` >= `started_at`)
+)
+    collate = utf8mb4_unicode_ci;
+
+create index runs_map_idx
+    on runs (map_id);
+
+create index runs_scope_idx
+    on runs (week_id, match_id);
+
+create index runs_user_time_idx
+    on runs (user_id, started_at);
+
+create table territories
+(
+    id         bigint unsigned auto_increment
+        primary key,
+    owner_id   bigint unsigned                    not null,
+    map_id     varchar(64)                        null,
+    week_id    bigint unsigned                    null,
+    match_id   bigint unsigned                    null,
+    polygon    geometry                           not null,
+    area_m2    double                             not null,
+    claimed_at datetime default CURRENT_TIMESTAMP not null,
+    updated_at datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
+    constraint terr_map_fk
+        foreign key (map_id) references map_sessions (id)
+            on update cascade on delete set null,
+    constraint terr_match_fk
+        foreign key (match_id) references matches (id)
+            on update cascade on delete set null,
+    constraint terr_owner_fk
+        foreign key (owner_id) references users (id)
+            on update cascade on delete cascade,
+    constraint terr_week_fk
+        foreign key (week_id) references weeks (id)
+            on update cascade on delete set null,
+    constraint terr_area_chk
+        check (`area_m2` >= 0)
+)
+    collate = utf8mb4_unicode_ci;
+
+create index terr_map_owner_idx
+    on territories (map_id, owner_id);
+
+create index terr_owner_idx
+    on territories (owner_id);
+
+create spatial index terr_poly_gix
+    on territories (polygon);
+
+create index terr_week_match_owner_idx
+    on territories (week_id, match_id, owner_id);
+
