@@ -25,18 +25,21 @@ export type RealtimeEvent =
       type: 'path';
       mapId: string;
       userId: string;
+      username: string;
       path: PathFeature;
     }
   | {
       type: 'territory';
       mapId: string;
       userId: string;
+      username: string;
       territory: TerritoryFeature;
     }
   | {
       type: 'state';
       mapId: string;
       userId: string;
+      username: string;
       ghostState: GhostState;
       ghostEligible: boolean;
       pathLengthMeters: number;
@@ -46,13 +49,16 @@ export type RealtimeEvent =
       type: 'knockout';
       mapId: string;
       userId: string;
+      username: string;
       byUserId: string;
+      byUsername: string;
       reason: KnockoutReason;
     }
   | {
       type: 'reset';
       mapId: string;
       userId: string;
+      username: string;
       reason: 'manual';
     };
 
@@ -65,6 +71,7 @@ export type MapSnapshot = {
   mapId: string;
   players: Array<{
     userId: string;
+    username: string;
     isOutside: boolean;
     territory: TerritoryFeature | null;
     path: PathFeature | null;
@@ -93,6 +100,7 @@ export function getMapSnapshot(mapId: string): MapSnapshot | null {
     mapId,
     players: Array.from(state.players.values()).map((player) => ({
       userId: player.userId,
+      username: player.username,
       isOutside: player.isOutside,
       territory: player.territory,
       path: player.path.length >= 2 ? toPathFeature(player) : null,
@@ -128,10 +136,11 @@ export function ingestLocation(
   mapId: string,
   userId: string,
   point: GeoPoint,
-  ops: GeometryOps
+  ops: GeometryOps,
+  username?: string
 ): RealtimeEvent[] {
   const state = getOrCreateMapState(mapId);
-  const player = getOrCreatePlayer(state, userId, point);
+  const player = getOrCreatePlayer(state, userId, point, username);
   const events: RealtimeEvent[] = [];
 
   player.lastPoint = point;
@@ -169,14 +178,18 @@ function getOrCreateMapState(mapId: string): MapState {
   return state;
 }
 
-function getOrCreatePlayer(state: MapState, userId: string, point: GeoPoint): PlayerState {
+function getOrCreatePlayer(state: MapState, userId: string, point: GeoPoint, username?: string): PlayerState {
   const existing = state.players.get(userId);
   if (existing) {
+    if (username && username !== existing.username) {
+      existing.username = username;
+    }
     return existing;
   }
   const territory = createInitialTerritory(userId, point);
   const player: PlayerState = {
     userId,
+    username: username ?? userId,
     territory,
     path: [],
     isOutside: false,
@@ -257,7 +270,7 @@ function extendPath(
       segmentEnd
     );
     if (selfKnockout) {
-      events.push(knockoutPlayer(state.mapId, player, player.userId, 'self-cross'));
+      events.push(knockoutPlayer(state.mapId, player, player, 'self-cross'));
       events.push(buildStateEvent(state.mapId, player));
       return events;
     }
@@ -272,7 +285,7 @@ function extendPath(
         }
         const otherLine = otherPlayer.path.map((p) => [p.lng, p.lat]);
         if (lineStringIntersects(otherLine, segmentStart, segmentEnd)) {
-          events.push(knockoutPlayer(state.mapId, otherPlayer, player.userId, 'path-cross'));
+          events.push(knockoutPlayer(state.mapId, otherPlayer, player, 'path-cross'));
           if (otherPlayer.ghostState !== 'player') {
             events.push(buildStateEvent(state.mapId, otherPlayer));
           }
@@ -345,6 +358,7 @@ function closePath(
     type: 'territory',
     mapId: state.mapId,
     userId: player.userId,
+    username: player.username,
     territory: player.territory,
   });
   events.push(buildStateEvent(state.mapId, player));
@@ -365,6 +379,7 @@ function closePath(
         type: 'territory',
         mapId: state.mapId,
         userId: otherId,
+        username: otherPlayer.username,
         territory: updated,
       });
       events.push(buildStateEvent(state.mapId, otherPlayer));
@@ -379,7 +394,7 @@ function closePath(
 
 function buildPathEvent(mapId: string, player: PlayerState): RealtimeEvent {
   const path = toPathFeature(player);
-  return { type: 'path', mapId, userId: player.userId, path };
+  return { type: 'path', mapId, userId: player.userId, username: player.username, path };
 }
 
 function buildStateEvent(mapId: string, player: PlayerState): RealtimeEvent {
@@ -387,6 +402,7 @@ function buildStateEvent(mapId: string, player: PlayerState): RealtimeEvent {
     type: 'state',
     mapId,
     userId: player.userId,
+    username: player.username,
     ghostState: player.ghostState,
     ghostEligible: player.ghostEligible,
     pathLengthMeters: player.pathLengthMeters,
@@ -397,7 +413,7 @@ function buildStateEvent(mapId: string, player: PlayerState): RealtimeEvent {
 function knockoutPlayer(
   mapId: string,
   player: PlayerState,
-  byUserId: string,
+  byPlayer: PlayerState,
   reason: KnockoutReason
 ): RealtimeEvent {
   player.path = [];
@@ -407,7 +423,9 @@ function knockoutPlayer(
     type: 'knockout',
     mapId,
     userId: player.userId,
-    byUserId,
+    username: player.username,
+    byUserId: byPlayer.userId,
+    byUsername: byPlayer.username,
     reason,
   };
 }

@@ -34,6 +34,7 @@ export type GhostState = 'ghost_invulnerable' | 'ghost_vulnerable' | 'player';
 
 export type PlayerState = {
   userId: string;
+  username: string;
   territory: TerritoryFeature | null;
   path: GeoPoint[];
   isOutside: boolean;
