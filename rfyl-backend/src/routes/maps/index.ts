@@ -33,6 +33,11 @@ router.post('/:mapId/locations', (req: Request, res: Response) => {
       continue;
     }
     const userId = (raw as { userId?: string }).userId ?? '';
+    const usernameValue = (raw as { username?: unknown }).username;
+    const username =
+      typeof usernameValue === 'string' && usernameValue.trim().length > 0
+        ? usernameValue.trim()
+        : undefined;
     const lat = Number((raw as { lat?: number }).lat);
     const lng = Number((raw as { lng?: number }).lng);
     if (!userId || Number.isNaN(lat) || Number.isNaN(lng)) {
@@ -49,7 +54,7 @@ router.post('/:mapId/locations', (req: Request, res: Response) => {
       ts,
       ...(accuracyValue === undefined ? {} : { accuracy: Number(accuracyValue) }),
     };
-    const updateEvents = ingestLocation(mapId, userId, update, geometryOps);
+    const updateEvents = ingestLocation(mapId, userId, update, geometryOps, username);
     events.push(...updateEvents);
     accepted += 1;
   }
@@ -154,6 +159,7 @@ router.post('/:mapId/reset', (req: Request, res: Response) => {
     type: 'reset',
     mapId,
     userId: 'system',
+    username: 'system',
     reason: 'manual',
   };
   const resetSnapshot: MapSnapshot = {
