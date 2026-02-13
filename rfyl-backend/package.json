@@ -6,7 +6,7 @@
     "build": "tsc",
     "dev": "nodemon --watch src --ext ts --exec \"npm run build --silent && node dist/index.js\"",
     "start": "node dist/index.js",
-    "test": "node tests/smoke.test.js && node tests/build.test.js && node tests/src-structure.test.js && node tests/auth.integration.test.js && node tests/realtime.capture.test.js && node tests/realtime.gameplay.test.js",
+    "test": "node tests/smoke.test.js && node tests/build.test.js && node tests/src-structure.test.js && node tests/auth.integration.test.js && node tests/realtime.capture.test.js && node tests/realtime.gameplay.test.js && node tests/realtime.persistence.test.js",
     "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
     "lint:fix": "npm run lint -- --fix",
     "prepare": "husky"
