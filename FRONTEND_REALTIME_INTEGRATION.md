@@ -1,185 +1,199 @@
-# Frontend Realtime Integration
+# Frontend Realtime Integration (Behavior Change)
 
-This doc explains how the frontend should connect to the realtime map API and render
-territory/path updates in MapTiler.
+This document describes the updated backend lifecycle for realtime map gameplay.
+
+## Summary Of The Change
+
+Old behavior:
+- First `POST /locations` implicitly created the player and initial territory.
+
+New behavior:
+- Player must be explicitly registered with `POST /players/join`.
+- Initial spawn territory is created only via `POST /players/:userId/respawn` with `{lat,lng}`.
+- `POST /locations` now rejects non-joined players.
+
+This change is required so frontend can support an explicit "Start Run" button.
+
+## Required Frontend Sequence
+
+1. Connect SSE stream.
+2. Fetch current map snapshot.
+3. Join player.
+4. On Start Run button tap, get current GPS and call respawn with `{lat,lng}`.
+5. Start sending periodic location updates.
+
+You can do steps 1 and 2 in either order. If doing SSE first, keep events buffered until snapshot load completes.
 
 ## Endpoints
 
-### 1) Send location updates
-`POST /api/maps/:mapId/locations`
+### 1) Join player
+`POST /api/maps/:mapId/players/join`
 
-Body (single or array):
+Request:
 ```json
 {
   "userId": "player-123",
-  "lat": 37.7749,
-  "lng": -122.4194,
-  "ts": 1700000000000,
-  "accuracy": 6
+  "username": "Connor"
 }
 ```
 
-Response:
+Responses:
+- `201` created:
 ```json
-{ "received": 1, "accepted": 1 }
+{ "ok": true, "mapId": "week-2026-02-15", "userId": "player-123", "created": true }
+```
+- `200` already existed:
+```json
+{ "ok": true, "mapId": "week-2026-02-15", "userId": "player-123", "created": false }
 ```
 
-Notes:
-- Send one update per second.
-- `ts` is milliseconds since epoch.
-- `accuracy` is optional; server ignores noisy points.
+### 2) Respawn / Start Run spawn
+`POST /api/maps/:mapId/players/:userId/respawn`
 
-### 2) Subscribe to realtime events (SSE)
+For initial spawn (required when player has no territory), include:
+```json
+{
+  "lat": 37.7749,
+  "lng": -122.4194
+}
+```
+
+Responses:
+- `200` success:
+```json
+{ "ok": true }
+```
+- `404` if player is not joined:
+```json
+{ "error": "player_not_joined" }
+```
+- `409` if not eligible or missing spawn point for initial spawn:
+```json
+{ "error": "player not eligible to respawn or missing spawn point" }
+```
+- `400` validation errors:
+```json
+{ "error": "lat and lng must be provided together" }
+```
+
+### 3) Send location updates
+`POST /api/maps/:mapId/locations`
+
+Request (single update or array):
+```json
+{
+  "userId": "player-123",
+  "username": "Connor",
+  "lat": 37.7749,
+  "lng": -122.4194,
+  "ts": 1700000000000
+}
+```
+
+Responses:
+- `202` accepted:
+```json
+{ "received": 1, "accepted": 1, "rejectedNotJoined": 0 }
+```
+- `409` if all updates were from non-joined players:
+```json
+{
+  "error": "player_not_joined",
+  "received": 1,
+  "accepted": 0,
+  "rejectedNotJoined": 1
+}
+```
+
+### 4) Snapshot
+`GET /api/maps/:mapId/state`
+
+Returns:
+```json
+{
+  "mapId": "week-2026-02-15",
+  "players": [
+    {
+      "userId": "player-123",
+      "username": "Connor",
+      "isOutside": false,
+      "territory": null,
+      "path": null,
+      "ghostState": "ghost_invulnerable",
+      "ghostEligible": false,
+      "pathLengthMeters": 0,
+      "territoryAreaSqMeters": 0
+    }
+  ]
+}
+```
+
+### 5) Realtime stream
 `GET /api/maps/:mapId/stream`
 
 SSE event types:
-- `path` – active path LineString for a player
-- `territory` – player territory Polygon/MultiPolygon
-- `state` – ghost state/metrics updates
-- `knockout` – knockout event
+- `ready`
+- `path`
+- `territory`
+- `state`
+- `knockout`
+- `reset`
 
-### 3) Snapshot (initial load)
-`GET /api/maps/:mapId/state`
+All gameplay events now include `username`.
 
-Returns current state for all players, so a new client can render immediately before
-listening to SSE events.
+## Frontend State Machine
 
-### 4) Respawn (ghost -> player)
-`POST /api/maps/:mapId/players/:userId/respawn`
+Use this per-player local state:
+- `not_joined`
+- `joined_unspawned`
+- `spawned_ghost`
+- `active_player`
 
-Returns `{ ok: true }` when the player is eligible to respawn.
+Transitions:
+- `not_joined -> joined_unspawned`: successful `POST /players/join`
+- `joined_unspawned -> spawned_ghost`: successful respawn with spawn `{lat,lng}`
+- `spawned_ghost -> active_player`: server `state` event with `ghostState: "player"`
+- `active_player -> joined_unspawned`: knockout then territory removed (via SSE updates)
 
-## Recommended frontend flow
+## Rendering Rules
 
-1) **Initial load**
-   - Call `GET /api/maps/:mapId/state`.
-   - Render all `territory` polygons and any active `path` lines.
+- Render territory from `territory` events and snapshot `players[].territory`.
+- Render active path from `path` events and snapshot `players[].path`.
+- Clear player path on:
+  - `knockout` event for that user
+  - `territory` update where loop closes and path disappears in subsequent state
+- Keep color keyed by `userId`; label with `username`.
 
-2) **Subscribe to SSE**
-   - Open an `EventSource` to `/api/maps/:mapId/stream`.
-   - For each event:
-     - `path`: update or create a LineString feature for `userId`.
-     - `territory`: update or create Polygon/MultiPolygon feature for `userId`.
-     - `state`: update UI badges (ghost/vulnerable/player).
-     - `knockout`: clear that player's path, show UI feedback.
+## Migration Checklist For Frontend
 
-3) **Send location updates**
-   - POST the user's location every second.
-   - If user goes offline, pause updates and reconnect SSE.
+1. Add `joinPlayer(mapId, userId, username)` call on map entry.
+2. Gate location posting until join succeeds.
+3. Wire Start Run button to:
+   - fetch current GPS
+   - call respawn with `{lat,lng}`
+   - only then start 1 Hz location updates
+4. Handle `409 player_not_joined` from `/locations` by re-joining and retrying.
+5. Update event handlers to read `username` from SSE payloads.
 
-4) **Respawn**
-   - When ghost becomes eligible, show a respawn button.
-   - On click, call the respawn endpoint and wait for a `state` event confirming player status.
+## Minimal Curl Flow
 
-## MapTiler rendering approach
-
-Use two GeoJSON sources:
-- `territories` (Polygon/MultiPolygon)
-- `paths` (LineString)
-
-Each feature has:
-```json
-{
-  "type": "Feature",
-  "geometry": { ... },
-  "properties": { "userId": "...", "updatedAt": 1700000000000 }
-}
+Join:
+```bash
+curl -X POST "http://localhost:2000/api/maps/dev-map/players/join" \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"player-a","username":"Player A"}'
 ```
 
-Update logic:
-- Use `userId` as a stable feature ID.
-- On `territory` event: replace that user's feature.
-- On `path` event: replace that user's path feature.
-- On `knockout`: remove that user's path feature.
-
-Suggested styling:
-- Territory fill: Hash the userID for unique color.
-- Territory outline: same color, higher opacity.
-- Path line: bright, thicker line (higher z-index).
-
-## Example SSE handling (frontend)
-```js
-const es = new EventSource(`/api/maps/${mapId}/stream`);
-
-es.addEventListener("path", (event) => {
-  const payload = JSON.parse(event.data);
-  updatePathFeature(payload.userId, payload.path);
-});
-
-es.addEventListener("territory", (event) => {
-  const payload = JSON.parse(event.data);
-  updateTerritoryFeature(payload.userId, payload.territory);
-});
-
-es.addEventListener("state", (event) => {
-  const payload = JSON.parse(event.data);
-  updateGhostStateUI(payload.userId, payload.ghostState);
-});
-
-es.addEventListener("knockout", (event) => {
-  const payload = JSON.parse(event.data);
-  clearPathFeature(payload.userId);
-});
+Start run spawn:
+```bash
+curl -X POST "http://localhost:2000/api/maps/dev-map/players/player-a/respawn" \
+  -H "Content-Type: application/json" \
+  -d '{"lat":37.7749,"lng":-122.4194}'
 ```
 
-## Error handling & reconnect
-- Reconnect on SSE errors (e.g. exponential backoff).
-- If SSE reconnects, re-fetch `/state` to avoid missed updates.
-- If location POST fails, queue a small backlog (last 5–10 points) and retry.
-
-## Payload examples
-
-### `territory`
-```json
-{
-  "type": "territory",
-  "mapId": "week-2025-10-05",
-  "userId": "player-123",
-  "territory": {
-    "type": "Feature",
-    "geometry": {
-      "type": "MultiPolygon",
-      "coordinates": [[[[-122.42,37.77], ... ]]]
-    },
-    "properties": { "userId": "player-123", "updatedAt": 1700000000000 }
-  }
-}
-```
-
-### `path`
-```json
-{
-  "type": "path",
-  "mapId": "week-2025-10-05",
-  "userId": "player-123",
-  "path": {
-    "type": "Feature",
-    "geometry": { "type": "LineString", "coordinates": [[-122.42,37.77], ...] },
-    "properties": { "userId": "player-123", "updatedAt": 1700000000000 }
-  }
-}
-```
-
-### `state`
-```json
-{
-  "type": "state",
-  "mapId": "week-2025-10-05",
-  "userId": "player-123",
-  "ghostState": "ghost_vulnerable",
-  "ghostEligible": true,
-  "pathLengthMeters": 522.1,
-  "territoryAreaSqMeters": 825.0
-}
-```
-
-### `knockout`
-```json
-{
-  "type": "knockout",
-  "mapId": "week-2025-10-05",
-  "userId": "player-456",
-  "byUserId": "player-123",
-  "reason": "path-cross"
-}
+Send location:
+```bash
+curl -X POST "http://localhost:2000/api/maps/dev-map/locations" \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"player-a","username":"Player A","lat":37.7750,"lng":-122.4195,"ts":1700000000000}'
 ```
