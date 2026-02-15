@@ -145,13 +145,31 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
     process.env.MAP_RESET_PASSWORD = "test-reset-password";
 
-    const seed = await postJson(baseUrl, `/api/maps/${mapId}/locations`, {
+    const notJoinedLocation = await postJson(baseUrl, `/api/maps/${mapId}/locations`, {
       userId: "player-a",
       lat: 37.7749,
       lng: -122.4194,
       ts: Date.now(),
     });
-    assert.strictEqual(seed.response.status, 202, "expected seeding map location to succeed");
+    assert.strictEqual(notJoinedLocation.response.status, 409, "expected locations to reject non-joined player");
+
+    const join = await postJson(baseUrl, `/api/maps/${mapId}/players/join`, {
+      userId: "player-a",
+      username: "player-a",
+    });
+    assert.ok(
+      join.response.status === 200 || join.response.status === 201,
+      "expected join to succeed"
+    );
+
+    const respawnMissingSpawn = await postJson(baseUrl, `/api/maps/${mapId}/players/player-a/respawn`, {});
+    assert.strictEqual(respawnMissingSpawn.response.status, 409, "expected respawn to require spawn point for new ghost");
+
+    const seed = await postJson(baseUrl, `/api/maps/${mapId}/players/player-a/respawn`, {
+      lat: 37.7749,
+      lng: -122.4194,
+    });
+    assert.strictEqual(seed.response.status, 200, "expected map respawn seed to succeed");
 
     const wrongPassword = await postJson(baseUrl, `/api/maps/${mapId}/reset`, { password: "wrong" });
     assert.strictEqual(wrongPassword.response.status, 403, "expected invalid reset password rejection");
