@@ -158,9 +158,13 @@ try {
     );
     assert.ok(knocked, "expected self-cross to knock out invulnerable ghost");
     const after = getPlayer(mapId, userId);
+    assert.strictEqual(after.territory, null, "expected territory removed after ghost self-knockout");
     assert.strictEqual(after.isOutside, false, "expected ghost to be inside after knockout");
     assert.strictEqual(after.path, null, "expected path cleared after knockout");
     assert.strictEqual(after.ghostState, "ghost_invulnerable");
+    send(0, 0);
+    const afterMove = getPlayer(mapId, userId);
+    assert.strictEqual(afterMove.territory, null, "expected no auto-respawn territory after ghost death");
     clearMapState(mapId);
   }
 
@@ -185,8 +189,13 @@ try {
     assert.strictEqual(knocked.username, expectedUsername(userId), "expected knocked username");
     assert.strictEqual(knocked.byUsername, expectedUsername(userId), "expected self knockout byUsername");
     const after = getPlayer(mapId, userId);
+    assert.strictEqual(after.territory, null, "expected territory removed after knockout");
+    assert.strictEqual(after.ghostState, "ghost_invulnerable", "expected player to become ghost after knockout");
     assert.strictEqual(after.isOutside, false, "expected player to be inside after knockout");
     assert.strictEqual(after.path, null, "expected path cleared after knockout");
+    send(bounds.centerLat, bounds.centerLng);
+    const afterMove = getPlayer(mapId, userId);
+    assert.strictEqual(afterMove.territory, null, "expected no auto-respawn territory on next location");
     clearMapState(mapId);
   }
 
@@ -292,6 +301,8 @@ try {
     assert.ok(knockedGhost, "expected vulnerable ghost to be knocked");
     assert.strictEqual(knockedGhost.username, expectedUsername(ghostId), "expected knocked ghost username");
     assert.strictEqual(knockedGhost.byUsername, expectedUsername(playerId), "expected attacker username");
+    const ghostAfterKnock = getPlayer(mapId, ghostId);
+    assert.strictEqual(ghostAfterKnock.territory, null, "expected knocked player territory removed from map state");
     clearMapState(mapId);
   }
 

@@ -125,7 +125,37 @@ export function respawnPlayer(mapId: string, userId: string): RealtimeEvent[] {
     return [];
   }
   const player = state.players.get(userId);
-  if (!player || player.ghostState === 'player' || !player.ghostEligible) {
+  if (!player) {
+    return [];
+  }
+
+  // Explicit respawn after death: recreate a small spawn territory, remain ghost.
+  if (!player.territory) {
+    const spawnPoint = player.lastPoint ?? player.lastInsidePoint;
+    if (!spawnPoint) {
+      return [];
+    }
+    player.territory = createInitialTerritory(player.userId, spawnPoint);
+    player.lastInsidePoint = spawnPoint;
+    player.path = [];
+    player.isOutside = false;
+    player.pathLengthMeters = 0;
+    player.ghostState = 'ghost_invulnerable';
+    player.ghostEligible = false;
+    player.territoryAreaSqMeters = estimateTerritoryAreaSqMeters(player.territory);
+    return [
+      {
+        type: 'territory',
+        mapId,
+        userId: player.userId,
+        username: player.username,
+        territory: player.territory,
+      },
+      buildStateEvent(mapId, player),
+    ];
+  }
+
+  if (player.ghostState === 'player' || !player.ghostEligible) {
     return [];
   }
   player.ghostState = 'player';
@@ -427,9 +457,13 @@ function knockoutPlayer(
   byPlayer: PlayerState,
   reason: KnockoutReason
 ): RealtimeEvent {
+  player.territory = null;
   player.path = [];
   player.isOutside = false;
   player.pathLengthMeters = 0;
+  player.territoryAreaSqMeters = 0;
+  player.ghostState = 'ghost_invulnerable';
+  player.ghostEligible = false;
   return {
     type: 'knockout',
     mapId,
