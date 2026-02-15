@@ -89,6 +89,7 @@ const METERS_PER_DEG_LAT = 111_320;
 const GHOST_SPAWN_SIZE_METERS = 3;
 const GHOST_VULNERABLE_PATH_METERS = 400;
 const IDLE_FORGIVENESS_SEGMENT_METERS = 1.5;
+const MAX_PLAYERS_PER_MAP = 10;
 
 const mapStates = new Map<string, MapState>();
 
@@ -124,6 +125,11 @@ export function hasPlayer(mapId: string, userId: string): boolean {
   return Boolean(state?.players.get(userId));
 }
 
+export function isMapAtCapacity(mapId: string): boolean {
+  const state = mapStates.get(mapId);
+  return Boolean(state && state.players.size >= MAX_PLAYERS_PER_MAP);
+}
+
 export function joinPlayer(mapId: string, userId: string, username?: string): RealtimeEvent[] {
   const state = getOrCreateMapState(mapId);
   const existing = state.players.get(userId);
@@ -132,6 +138,9 @@ export function joinPlayer(mapId: string, userId: string, username?: string): Re
       existing.username = username;
       return [buildStateEvent(mapId, existing)];
     }
+    return [];
+  }
+  if (state.players.size >= MAX_PLAYERS_PER_MAP) {
     return [];
   }
 
@@ -200,8 +209,14 @@ export function ingestLocation(
   const state = getOrCreateMapState(mapId);
   const player = getOrCreatePlayer(state, userId, point, username);
   const events: RealtimeEvent[] = [];
+  if (!player) {
+    return events;
+  }
 
   const prevPoint = player.lastPoint;
+  if (prevPoint && point.ts <= prevPoint.ts) {
+    return events;
+  }
   const prevInside = Boolean(
     player.territory &&
       prevPoint &&
@@ -250,13 +265,16 @@ function getOrCreateMapState(mapId: string): MapState {
   return state;
 }
 
-function getOrCreatePlayer(state: MapState, userId: string, point: GeoPoint, username?: string): PlayerState {
+function getOrCreatePlayer(state: MapState, userId: string, point: GeoPoint, username?: string): PlayerState | null {
   const existing = state.players.get(userId);
   if (existing) {
     if (username && username !== existing.username) {
       existing.username = username;
     }
     return existing;
+  }
+  if (state.players.size >= MAX_PLAYERS_PER_MAP) {
+    return null;
   }
   const territory = createInitialTerritory(userId, point);
   const player: PlayerState = {

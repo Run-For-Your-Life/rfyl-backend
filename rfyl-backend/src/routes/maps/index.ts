@@ -8,6 +8,7 @@ import {
   getMapSnapshot,
   hasPlayer,
   ingestLocation,
+  isMapAtCapacity,
   joinPlayer,
   respawnPlayer,
   type MapSnapshot,
@@ -39,6 +40,10 @@ router.post('/:mapId/players/join', (req: Request, res: Response) => {
   }
 
   const existed = hasPlayer(mapId, userId);
+  if (!existed && isMapAtCapacity(mapId)) {
+    res.status(409).json({ error: 'map_full', maxPlayers: 10 });
+    return;
+  }
   const events = joinPlayer(mapId, userId, username);
   const snapshot = getMapSnapshot(mapId);
   if (snapshot && events.length > 0) {
