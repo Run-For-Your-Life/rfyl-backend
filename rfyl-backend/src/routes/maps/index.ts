@@ -6,7 +6,9 @@ import { getEnv } from '../../config/env';
 import {
   clearMapState,
   getMapSnapshot,
+  hasPlayer,
   ingestLocation,
+  joinPlayer,
   respawnPlayer,
   type MapSnapshot,
   type RealtimeEvent,
@@ -18,6 +20,34 @@ import { broadcastEvents, registerRealtimeClient, removeRealtimeClient } from '.
 const router = Router();
 const geometryOps = createGeometryOps();
 
+router.post('/:mapId/players/join', (req: Request, res: Response) => {
+  const { mapId } = req.params;
+  if (!mapId) {
+    res.status(400).json({ error: 'mapId is required' });
+    return;
+  }
+  const userIdValue = (req.body as { userId?: unknown })?.userId;
+  const usernameValue = (req.body as { username?: unknown })?.username;
+  const userId = typeof userIdValue === 'string' ? userIdValue.trim() : '';
+  const username =
+    typeof usernameValue === 'string' && usernameValue.trim().length > 0
+      ? usernameValue.trim()
+      : undefined;
+  if (!userId) {
+    res.status(400).json({ error: 'userId is required' });
+    return;
+  }
+
+  const existed = hasPlayer(mapId, userId);
+  const events = joinPlayer(mapId, userId, username);
+  const snapshot = getMapSnapshot(mapId);
+  if (snapshot && events.length > 0) {
+    appendRealtimeWal(mapId, events, snapshot);
+    broadcastEvents(mapId, events);
+  }
+  res.status(existed ? 200 : 201).json({ ok: true, mapId, userId, created: !existed });
+});
+
 router.post('/:mapId/locations', (req: Request, res: Response) => {
   const { mapId } = req.params;
   if (!mapId) {
@@ -26,6 +56,7 @@ router.post('/:mapId/locations', (req: Request, res: Response) => {
   }
   const rawUpdates = Array.isArray(req.body) ? req.body : [req.body];
   let accepted = 0;
+  let rejectedNotJoined = 0;
   const events: RealtimeEvent[] = [];
 
   for (const raw of rawUpdates) {
@@ -41,6 +72,10 @@ router.post('/:mapId/locations', (req: Request, res: Response) => {
     const lat = Number((raw as { lat?: number }).lat);
     const lng = Number((raw as { lng?: number }).lng);
     if (!userId || Number.isNaN(lat) || Number.isNaN(lng)) {
+      continue;
+    }
+    if (!hasPlayer(mapId, userId)) {
+      rejectedNotJoined += 1;
       continue;
     }
     const ts = Number.isFinite((raw as { ts?: number }).ts)
@@ -66,9 +101,20 @@ router.post('/:mapId/locations', (req: Request, res: Response) => {
 
   broadcastEvents(mapId, events);
 
+  if (accepted === 0 && rejectedNotJoined > 0) {
+    res.status(409).json({
+      error: 'player_not_joined',
+      received: rawUpdates.length,
+      accepted,
+      rejectedNotJoined,
+    });
+    return;
+  }
+
   res.status(202).json({
     received: rawUpdates.length,
     accepted,
+    rejectedNotJoined,
   });
 });
 
@@ -114,9 +160,33 @@ router.post('/:mapId/players/:userId/respawn', (req: Request, res: Response) => 
     res.status(400).json({ error: 'mapId and userId are required' });
     return;
   }
-  const events = respawnPlayer(mapId, userId);
+  if (!hasPlayer(mapId, userId)) {
+    res.status(404).json({ error: 'player_not_joined' });
+    return;
+  }
+
+  const latRaw = (req.body as { lat?: unknown })?.lat;
+  const lngRaw = (req.body as { lng?: unknown })?.lng;
+  const hasLat = latRaw !== undefined;
+  const hasLng = lngRaw !== undefined;
+  if (hasLat !== hasLng) {
+    res.status(400).json({ error: 'lat and lng must be provided together' });
+    return;
+  }
+  let spawnPoint: { lat: number; lng: number; ts: number } | undefined;
+  if (hasLat && hasLng) {
+    const lat = Number(latRaw);
+    const lng = Number(lngRaw);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      res.status(400).json({ error: 'lat and lng must be finite numbers' });
+      return;
+    }
+    spawnPoint = { lat, lng, ts: Date.now() };
+  }
+
+  const events = respawnPlayer(mapId, userId, spawnPoint);
   if (events.length === 0) {
-    res.status(409).json({ error: 'player not eligible to respawn' });
+    res.status(409).json({ error: 'player not eligible to respawn or missing spawn point' });
     return;
   }
   const snapshot = getMapSnapshot(mapId);
