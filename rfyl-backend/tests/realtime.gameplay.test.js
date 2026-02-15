@@ -190,6 +190,39 @@ try {
     clearMapState(mapId);
   }
 
+  // Tiny jitter while idling outside should be ignored (no new segment, no self-knock).
+  {
+    const mapId = "idle-forgiveness";
+    const userId = "player-idle";
+    const send = createSender(mapId, userId);
+    makePlayer(mapId, userId, send, 0, 0);
+    const player = getPlayer(mapId, userId);
+    const bounds = getBounds(player.territory);
+
+    const outsideLat = bounds.minLat - bounds.dLat * 4;
+    const outsideLng = bounds.centerLng;
+
+    send(bounds.minLat + bounds.dLat * 0.1, bounds.centerLng);
+    send(outsideLat, outsideLng);
+    const beforeIdle = getPlayer(mapId, userId);
+    assert.ok(beforeIdle.path, "expected active path while outside");
+    const beforeIdlePathLength = beforeIdle.path.geometry.coordinates.length;
+    const idleEvents = send(outsideLat + 1e-9, outsideLng + 1e-9);
+
+    assert.ok(
+      !idleEvents.some((event) => event.type === "knockout"),
+      "expected no knockout from idle jitter"
+    );
+    const afterIdle = getPlayer(mapId, userId);
+    assert.ok(afterIdle.path, "expected active path while outside");
+    assert.strictEqual(
+      afterIdle.path.geometry.coordinates.length,
+      beforeIdlePathLength,
+      "expected jitter point to be ignored for idle forgiveness"
+    );
+    clearMapState(mapId);
+  }
+
   // Player cannot knock an invulnerable ghost.
   {
     const mapId = "knock-invulnerable";

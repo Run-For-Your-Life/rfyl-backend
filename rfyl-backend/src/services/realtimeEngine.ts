@@ -88,6 +88,7 @@ const METERS_PER_DEG_LAT = 111_320;
 const GHOST_SPAWN_SIZE_METERS = 3;
 const GHOST_VULNERABLE_PATH_METERS = 400;
 const GHOST_RESPAWN_AREA_SQ_METERS = 750;
+const IDLE_FORGIVENESS_SEGMENT_METERS = 1.5;
 
 const mapStates = new Map<string, MapState>();
 
@@ -257,11 +258,21 @@ function extendPath(
   }
 
   const lastPathPoint = player.path[player.path.length - 1];
+  if (!lastPathPoint) {
+    return events;
+  }
+
+  const segmentMeters = segmentDistanceMeters(lastPathPoint, point);
+  if (segmentMeters < IDLE_FORGIVENESS_SEGMENT_METERS) {
+    // Ignore jitter-sized movement so idling GPS noise does not create illegal/self-cross segments.
+    return events;
+  }
+
   player.path.push(point);
   if (lastPathPoint) {
     const segmentStart: Position = [lastPathPoint.lng, lastPathPoint.lat];
     const segmentEnd: Position = position;
-    player.pathLengthMeters += segmentDistanceMeters(lastPathPoint, point);
+    player.pathLengthMeters += segmentMeters;
     updateGhostVulnerability(player);
 
     const selfKnockout = lineStringIntersects(
