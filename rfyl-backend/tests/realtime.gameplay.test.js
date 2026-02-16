@@ -142,6 +142,48 @@ try {
     clearMapState(mapId);
   }
 
+  // Re-entering without leaving should not capture territory.
+  {
+    const mapId = "no-capture-without-exit";
+    const userId = "player-stay-inside";
+    const send = createSender(mapId, userId);
+    send(0, 0);
+
+    const seeded = getPlayer(mapId, userId);
+    const bounds = getBounds(seeded.territory);
+    const insideLat = bounds.centerLat + bounds.dLat * 0.1;
+    const insideLng = bounds.centerLng;
+    const events = send(insideLat, insideLng);
+    assert.ok(!events.some((event) => event.type === "territory"), "did not expect territory event");
+
+    const player = getPlayer(mapId, userId);
+    assert.strictEqual(player.isOutside, false);
+    assert.strictEqual(player.path, null);
+    clearMapState(mapId);
+  }
+
+  // Path event coordinates should match snapshot path length on exit.
+  {
+    const mapId = "path-event-length";
+    const userId = "player-path";
+    const send = createSender(mapId, userId);
+    send(0, 0);
+
+    const player = getPlayer(mapId, userId);
+    const bounds = getBounds(player.territory);
+    const inside = player.lastInsidePoint ?? { lat: bounds.centerLat, lng: bounds.centerLng };
+    send(inside.lat, inside.lng);
+    const events = send(bounds.minLat - bounds.dLat * 2, bounds.centerLng);
+    const pathEvent = events.find((event) => event.type === "path");
+    assert.ok(pathEvent, "expected path event on exit");
+
+    const after = getPlayer(mapId, userId);
+    const pathCoords = pathEvent.path.geometry.coordinates.length;
+    const snapshotPath = after.path?.geometry.coordinates.length ?? 0;
+    assert.strictEqual(pathCoords, snapshotPath, "expected path event length to match snapshot path");
+    clearMapState(mapId);
+  }
+
   // Ghost capture immediately transitions to player (no additional respawn step).
   {
     const mapId = "ghost-respawn";
