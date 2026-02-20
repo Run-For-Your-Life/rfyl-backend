@@ -7,9 +7,9 @@ if (!envFile) {
   process.exit(1);
 }
 
-const command = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const child = spawn(command, ['run', 'dev'], {
+const child = spawn('npm run dev', {
   stdio: 'inherit',
+  shell: true,
   env: {
     ...process.env,
     ENV_FILE: envFile,
