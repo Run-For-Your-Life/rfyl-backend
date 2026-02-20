@@ -1,4 +1,5 @@
 import type { Request, Response, Router } from 'express';
+import { Router as createRouter } from 'express';
 
 import { getMapSnapshot, hasPlayer, ingestLocation, type RealtimeEvent } from '../../../services/realtimeEngine';
 import { createGeometryOps } from '../../../services/realtimeOps';
@@ -9,7 +10,8 @@ import { toTrimmedOptionalString } from '../auth';
 
 type GeometryOps = ReturnType<typeof createGeometryOps>;
 
-export function locationsRoute(router: Router, geometryOps: GeometryOps): void {
+export function createLocationsRouter(geometryOps: GeometryOps): Router {
+  const router = createRouter();
   router.post('/:mapId/locations', (req: Request, res: Response) => {
     const authReq = req as AuthenticatedRequest;
     const { mapId } = req.params;
@@ -91,4 +93,5 @@ export function locationsRoute(router: Router, geometryOps: GeometryOps): void {
       rejectedNotJoined,
     });
   });
+  return router;
 }

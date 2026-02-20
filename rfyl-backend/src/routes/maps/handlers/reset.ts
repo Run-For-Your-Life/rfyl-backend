@@ -1,4 +1,5 @@
 import type { Request, Response, Router } from 'express';
+import { Router as createRouter } from 'express';
 
 import { getEnv } from '../../../config/env';
 import { clearMapState, getMapSnapshot, type MapSnapshot, type RealtimeEvent } from '../../../services/realtimeEngine';
@@ -6,7 +7,8 @@ import { appendRealtimeWal } from '../../../services/realtimePersistence';
 import { broadcastEvents } from '../../../services/realtimeStream';
 import { matchesPassword } from '../auth';
 
-export function resetRoute(router: Router): void {
+export function createResetRouter(): Router {
+  const router = createRouter();
   router.post('/:mapId/reset', (req: Request, res: Response) => {
     const { mapId } = req.params;
     if (!mapId) {
@@ -51,4 +53,5 @@ export function resetRoute(router: Router): void {
 
     res.status(200).json({ ok: true, mapId, cleared: Boolean(existing) });
   });
+  return router;
 }

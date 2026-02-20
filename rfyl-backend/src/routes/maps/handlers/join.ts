@@ -1,4 +1,5 @@
 import type { Request, Response, Router } from 'express';
+import { Router as createRouter } from 'express';
 
 import { getMapSnapshot, hasPlayer, isMapAtCapacity, joinPlayer } from '../../../services/realtimeEngine';
 import { appendRealtimeWal } from '../../../services/realtimePersistence';
@@ -6,7 +7,8 @@ import { broadcastEvents } from '../../../services/realtimeStream';
 import type { AuthenticatedRequest } from '../auth';
 import { toTrimmedOptionalString } from '../auth';
 
-export function joinRoute(router: Router): void {
+export function createJoinRouter(): Router {
+  const router = createRouter();
   router.post('/:mapId/players/join', (req: Request, res: Response) => {
     const authReq = req as AuthenticatedRequest;
     const { mapId } = req.params;
@@ -41,4 +43,5 @@ export function joinRoute(router: Router): void {
     }
     res.status(existed ? 200 : 201).json({ ok: true, mapId, userId, created: !existed });
   });
+  return router;
 }

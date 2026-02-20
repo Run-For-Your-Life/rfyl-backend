@@ -8,12 +8,12 @@ import {
   type AuthenticatedRequest,
   type VerifyIdTokenFn,
 } from './auth';
-import { joinRoute } from './handlers/join';
-import { locationsRoute } from './handlers/locations';
-import { resetRoute } from './handlers/reset';
-import { respawnRoute } from './handlers/respawn';
-import { stateRoute } from './handlers/state';
-import { streamRoute } from './handlers/stream';
+import { createJoinRouter } from './handlers/join';
+import { createLocationsRouter } from './handlers/locations';
+import { createResetRouter } from './handlers/reset';
+import { createRespawnRouter } from './handlers/respawn';
+import { createStateRouter } from './handlers/state';
+import { createStreamRouter } from './handlers/stream';
 
 export type { VerifyIdTokenFn };
 type MapsRouterOptions = {
@@ -44,12 +44,12 @@ export function createMapsRouter(options: MapsRouterOptions = {}) {
     }
   });
 
-  joinRoute(router);
-  locationsRoute(router, geometryOps);
-  streamRoute(router);
-  stateRoute(router);
-  respawnRoute(router);
-  resetRoute(router);
+  router.use(createJoinRouter());
+  router.use(createLocationsRouter(geometryOps));
+  router.use(createStreamRouter());
+  router.use(createStateRouter());
+  router.use(createRespawnRouter());
+  router.use(createResetRouter());
 
   return router;
 }

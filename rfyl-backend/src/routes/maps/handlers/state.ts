@@ -1,8 +1,10 @@
 import type { Request, Response, Router } from 'express';
+import { Router as createRouter } from 'express';
 
 import { getMapSnapshot } from '../../../services/realtimeEngine';
 
-export function stateRoute(router: Router): void {
+export function createStateRouter(): Router {
+  const router = createRouter();
   router.get('/:mapId/state', (req: Request, res: Response) => {
     const { mapId } = req.params;
     if (!mapId) {
@@ -16,4 +18,5 @@ export function stateRoute(router: Router): void {
     }
     res.status(200).json(snapshot);
   });
+  return router;
 }

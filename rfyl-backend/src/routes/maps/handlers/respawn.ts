@@ -1,11 +1,13 @@
 import type { Request, Response, Router } from 'express';
+import { Router as createRouter } from 'express';
 
 import { getMapSnapshot, hasPlayer, respawnPlayer } from '../../../services/realtimeEngine';
 import { appendRealtimeWal } from '../../../services/realtimePersistence';
 import { broadcastEvents } from '../../../services/realtimeStream';
 import type { AuthenticatedRequest } from '../auth';
 
-export function respawnRoute(router: Router): void {
+export function createRespawnRouter(): Router {
+  const router = createRouter();
   router.post('/:mapId/players/:userId/respawn', (req: Request, res: Response) => {
     const authReq = req as AuthenticatedRequest;
     const { mapId, userId } = req.params;
@@ -53,4 +55,5 @@ export function respawnRoute(router: Router): void {
     broadcastEvents(mapId, events);
     res.status(200).json({ ok: true });
   });
+  return router;
 }

@@ -1,8 +1,10 @@
 import type { Request, Response, Router } from 'express';
+import { Router as createRouter } from 'express';
 
 import { registerRealtimeClient, removeRealtimeClient } from '../../../services/realtimeStream';
 
-export function streamRoute(router: Router): void {
+export function createStreamRouter(): Router {
+  const router = createRouter();
   router.get('/:mapId/stream', (req: Request, res: Response) => {
     const { mapId } = req.params;
     if (!mapId) {
@@ -24,4 +26,5 @@ export function streamRoute(router: Router): void {
       res.end();
     });
   });
+  return router;
 }
