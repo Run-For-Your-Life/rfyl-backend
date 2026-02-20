@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import dotenv from 'dotenv';
 
+const projectRoot = path.resolve(__dirname, '..', '..');
+
 const profile = process.env.ENV_PROFILE?.trim();
 const profileCandidates = profile
     ? [
@@ -25,17 +27,19 @@ const candidateEnvFiles = [
 let loaded = false;
 
 for (const candidate of candidateEnvFiles) {
-    const resolvedPath = path.isAbsolute(candidate)
-        ? candidate
-        : path.resolve(process.cwd(), candidate);
+    const resolvedCandidates = resolveCandidatePaths(candidate);
+    for (const resolvedPath of resolvedCandidates) {
+        if (!fs.existsSync(resolvedPath)) {
+            continue;
+        }
 
-    if (!fs.existsSync(resolvedPath)) {
-        continue;
+        const result = dotenv.config({ path: resolvedPath });
+        if (!result.error) {
+            loaded = true;
+            break;
+        }
     }
-
-    const result = dotenv.config({ path: resolvedPath });
-    if (!result.error) {
-        loaded = true;
+    if (loaded) {
         break;
     }
 }
@@ -79,4 +83,18 @@ export function getNumberEnv(key: string, fallback?: number): number | undefined
     }
 
     return parsed;
+}
+
+function resolveCandidatePaths(candidate: string): string[] {
+    if (path.isAbsolute(candidate)) {
+        return [candidate];
+    }
+
+    const fromProjectRoot = path.resolve(projectRoot, candidate);
+    const fromCwd = path.resolve(process.cwd(), candidate);
+
+    if (fromProjectRoot === fromCwd) {
+        return [fromProjectRoot];
+    }
+    return [fromProjectRoot, fromCwd];
 }
