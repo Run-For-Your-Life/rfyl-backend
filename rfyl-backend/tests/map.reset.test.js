@@ -224,10 +224,10 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     }, authHeaders(TOKENS.unspawned));
     assert.strictEqual(
       unspawnedLocation.response.status,
-      202,
-      "expected joined but unspawned location to be accepted"
+      422,
+      "expected joined but unspawned out-of-bounds location to be rejected"
     );
-    assert.strictEqual(unspawnedLocation.json?.accepted, 1, "expected accepted=1 for unspawned location");
+    assert.strictEqual(unspawnedLocation.json?.error, "out_of_bounds", "expected out_of_bounds error");
     const unspawnedState = await getJson(baseUrl, `/api/maps/${unspawnedMapId}/state`);
     assert.strictEqual(unspawnedState.response.status, 200, "expected joined map state to exist");
     const unspawnedPlayer = unspawnedState.json?.players?.find((p) => p.userId === "player-unspawned");
@@ -310,7 +310,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       lat: 37.7749,
       lng: -122.4194,
     }, authHeaders(TOKENS.playerA));
-    assert.strictEqual(seed.response.status, 200, "expected map respawn seed to succeed");
+    assert.strictEqual(seed.response.status, 422, "expected out-of-bounds map respawn seed to be rejected");
+    assert.strictEqual(seed.json?.error, "out_of_bounds", "expected out_of_bounds error");
 
     const wrongPassword = await postJson(baseUrl, `/api/maps/${mapId}/reset`, { password: "wrong" }, authHeaders());
     assert.strictEqual(wrongPassword.response.status, 403, "expected invalid reset password rejection");
