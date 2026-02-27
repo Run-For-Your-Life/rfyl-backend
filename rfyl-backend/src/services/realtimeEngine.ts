@@ -27,6 +27,7 @@ export type RealtimeEvent =
       mapId: string;
       userId: string;
       username: string;
+      colornum: number;
       path: PathFeature;
     }
   | {
@@ -34,6 +35,7 @@ export type RealtimeEvent =
       mapId: string;
       userId: string;
       username: string;
+      colornum: number;
       territory: TerritoryFeature;
     }
   | {
@@ -41,6 +43,7 @@ export type RealtimeEvent =
       mapId: string;
       userId: string;
       username: string;
+      colornum: number;
       ghostState: GhostState;
       ghostEligible: boolean;
       pathLengthMeters: number;
@@ -73,6 +76,7 @@ export type MapSnapshot = {
   players: Array<{
     userId: string;
     username: string;
+    colornum: number;
     isOutside: boolean;
     territory: TerritoryFeature | null;
     path: PathFeature | null;
@@ -103,6 +107,7 @@ export function getMapSnapshot(mapId: string): MapSnapshot | null {
     players: Array.from(state.players.values()).map((player) => ({
       userId: player.userId,
       username: player.username,
+      colornum: player.colornum,
       isOutside: player.isOutside,
       territory: player.territory,
       path: player.path.length >= 2 ? toPathFeature(player) : null,
@@ -134,6 +139,13 @@ export function joinPlayer(mapId: string, userId: string, username?: string): Re
   const state = getOrCreateMapState(mapId);
   const existing = state.players.get(userId);
   if (existing) {
+    if (
+      !Number.isInteger(existing.colornum) ||
+      existing.colornum < 0 ||
+      existing.colornum >= MAX_PLAYERS_PER_MAP
+    ) {
+      existing.colornum = selectColor(state);
+    }
     if (username && username !== existing.username) {
       existing.username = username;
       return [buildStateEvent(mapId, existing)];
@@ -147,6 +159,7 @@ export function joinPlayer(mapId: string, userId: string, username?: string): Re
   const player: PlayerState = {
     userId,
     username: username ?? userId,
+    colornum: selectColor(state),
     territory: null,
     path: [],
     isOutside: false,
@@ -157,6 +170,35 @@ export function joinPlayer(mapId: string, userId: string, username?: string): Re
   };
   state.players.set(userId, player);
   return [buildStateEvent(mapId, player)];
+}
+
+// Assign a random unused color index (0-9) for this map session.
+function selectColor(state: MapState): number {
+  const used = new Set<number>();
+  for (const player of state.players.values()) {
+    // Track colors already assigned to active players on this map.
+    if (
+      Number.isInteger(player.colornum) &&
+      player.colornum >= 0 &&
+      player.colornum < MAX_PLAYERS_PER_MAP
+    ) {
+      used.add(player.colornum);
+    }
+  }
+  const available: number[] = [];
+  for (let color = 0; color < MAX_PLAYERS_PER_MAP; color += 1) {
+    // Build the pool of colors that are still free.
+    if (!used.has(color)) {
+      available.push(color);
+    }
+  }
+  if (available.length > 0) {
+    // Randomly pick one free color to avoid deterministic assignment order.
+    const randomIndex = Math.floor(Math.random() * available.length);
+    return available[randomIndex] ?? 0;
+  }
+  // Fallback: should only happen when map is full or state is inconsistent.
+  return 0;
 }
 
 export function respawnPlayer(mapId: string, userId: string, spawnPoint?: GeoPoint): RealtimeEvent[] {
@@ -190,6 +232,7 @@ export function respawnPlayer(mapId: string, userId: string, spawnPoint?: GeoPoi
         mapId,
         userId: player.userId,
         username: player.username,
+        colornum: player.colornum,
         territory: player.territory,
       },
       buildStateEvent(mapId, player),
@@ -280,6 +323,7 @@ function getOrCreatePlayer(state: MapState, userId: string, point: GeoPoint, use
   const player: PlayerState = {
     userId,
     username: username ?? userId,
+    colornum: selectColor(state),
     territory,
     path: [],
     isOutside: false,
@@ -510,6 +554,7 @@ function closePath(
     mapId: state.mapId,
     userId: player.userId,
     username: player.username,
+    colornum: player.colornum,
     territory: player.territory,
   });
   events.push(buildStateEvent(state.mapId, player));
@@ -531,6 +576,7 @@ function closePath(
         mapId: state.mapId,
         userId: otherId,
         username: otherPlayer.username,
+        colornum: otherPlayer.colornum,
         territory: updated,
       });
       events.push(buildStateEvent(state.mapId, otherPlayer));
@@ -554,7 +600,14 @@ function closePath(
 
 function buildPathEvent(mapId: string, player: PlayerState): RealtimeEvent {
   const path = toPathFeature(player);
-  return { type: 'path', mapId, userId: player.userId, username: player.username, path };
+  return {
+    type: 'path',
+    mapId,
+    userId: player.userId,
+    username: player.username,
+    colornum: player.colornum,
+    path,
+  };
 }
 
 function buildStateEvent(mapId: string, player: PlayerState): RealtimeEvent {
@@ -563,6 +616,7 @@ function buildStateEvent(mapId: string, player: PlayerState): RealtimeEvent {
     mapId,
     userId: player.userId,
     username: player.username,
+    colornum: player.colornum,
     ghostState: player.ghostState,
     ghostEligible: player.ghostEligible,
     pathLengthMeters: player.pathLengthMeters,

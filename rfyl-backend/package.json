@@ -5,8 +5,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "nodemon --watch src --ext ts --exec \"npm run build --silent && node dist/index.js\"",
-    "dev:local": "ENV_FILE=../.env.local npm run dev",
-    "dev:cloud": "ENV_FILE=../.env npm run dev",
+    "dev:local": "node ./scripts/run-with-env-file.mjs ../.env.local",
+    "dev:cloud": "node ./scripts/run-with-env-file.mjs ../.env",
     "start": "node dist/index.js",
     "db:local:up": "docker compose -f docker-compose.local-db.yml up -d",
     "db:local:down": "docker compose -f docker-compose.local-db.yml down",
