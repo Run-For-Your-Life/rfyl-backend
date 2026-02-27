@@ -1,14 +1,16 @@
 import { Router } from 'express';
 
-import loginRoute from './login.js';
-import registerRoute from './register.js';
-import sessionRoute from './session.js';
+import { createLoginRouter } from './login.js';
+import { createRegisterRouter } from './register.js';
+import { createSessionRouter } from './session.js';
 
-const router = Router();
+export const createAuthRouter = () => {
+  const router = Router();
+  router.use(createLoginRouter());
+  router.use(createRegisterRouter());
+  router.use(createSessionRouter());
+  return router;
+};
 
-// Mount the subroutes
-router.use(loginRoute);
-router.use(registerRoute);
-router.use(sessionRoute);
-
+const router = createAuthRouter();
 export default router;
