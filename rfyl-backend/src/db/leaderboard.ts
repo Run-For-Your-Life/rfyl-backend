@@ -17,13 +17,17 @@ type LeaderboardRow = RowDataPacket & {
   rank: number;
 };
 
-/**
- * Fetch leaderboard for a given week and optional match.
- * If matchId is null/undefined, we aggregate across all matches for that week.
- */
-export async function getLeaderboard(
-  weekId: number,
-  matchId?: number | null
+const mapLeaderboardRow = (row: LeaderboardRow): LeaderboardRecord => ({
+  userId: row.user_id,
+  username: row.username,
+  totalAreaM2: row.total_area_m2,
+  rank: row.rank,
+});
+
+async function queryLeaderboard(
+  whereSql: string,
+  whereParams: Array<number | string | null>,
+  limit: number
 ): Promise<LeaderboardRecord[]> {
   const sql = `
     SELECT 
@@ -35,21 +39,68 @@ export async function getLeaderboard(
       ) AS rank
     FROM territories t
     JOIN users u ON u.id = t.owner_id
-    WHERE t.week_id = ?
-      AND (t.match_id = ? OR ? IS NULL)
+    WHERE ${whereSql}
     GROUP BY u.id, u.username
     ORDER BY total_area_m2 DESC, user_id ASC
+    LIMIT ?
   `;
 
-  const params = [weekId, matchId ?? null, matchId ?? null];
+  const [rows] = await pool.execute<LeaderboardRow[]>(sql, [...whereParams, limit]);
+  return rows.map(mapLeaderboardRow);
+}
 
-  const [rows] = await pool.execute<LeaderboardRow[]>(sql, params);
+async function queryUserRank(
+  whereSql: string,
+  whereParams: Array<number | string | null>,
+  userId: number
+): Promise<LeaderboardRecord | null> {
+  const sql = `
+    WITH ranked AS (
+      SELECT
+        u.id AS user_id,
+        u.username,
+        SUM(t.area_m2) AS total_area_m2,
+        RANK() OVER (
+          ORDER BY SUM(t.area_m2) DESC, u.id ASC
+        ) AS rank
+      FROM territories t
+      JOIN users u ON u.id = t.owner_id
+      WHERE ${whereSql}
+      GROUP BY u.id, u.username
+    )
+    SELECT user_id, username, total_area_m2, rank
+    FROM ranked
+    WHERE user_id = ?
+    LIMIT 1
+  `;
 
-  // Convert the raw database row fields into the LeaderboardRecord shape
-  return rows.map((row) => ({
-    userId: row.user_id,
-    username: row.username,
-    totalAreaM2: row.total_area_m2,
-    rank: row.rank,
-  }));
+  const [rows] = await pool.execute<LeaderboardRow[]>(sql, [...whereParams, userId]);
+  return rows[0] ? mapLeaderboardRow(rows[0]) : null;
+}
+
+/**
+ * Fetch leaderboard for a given week and optional match.
+ * If matchId is null/undefined, we aggregate across all matches for that week.
+ */
+export async function getLeaderboard(
+  weekId: number,
+  matchId?: number | null
+): Promise<LeaderboardRecord[]> {
+  return queryLeaderboard('t.week_id = ? AND (t.match_id = ? OR ? IS NULL)', [weekId, matchId ?? null, matchId ?? null], 100);
+}
+
+export async function getMapLeaderboard(mapId: string, limit = 100): Promise<LeaderboardRecord[]> {
+  return queryLeaderboard('t.map_id = ?', [mapId], limit);
+}
+
+export async function getGlobalLeaderboard(limit = 100): Promise<LeaderboardRecord[]> {
+  return queryLeaderboard('1 = 1', [], limit);
+}
+
+export async function getMapLeaderboardForUser(mapId: string, userId: number): Promise<LeaderboardRecord | null> {
+  return queryUserRank('t.map_id = ?', [mapId], userId);
+}
+
+export async function getGlobalLeaderboardForUser(userId: number): Promise<LeaderboardRecord | null> {
+  return queryUserRank('1 = 1', [], userId);
 }
