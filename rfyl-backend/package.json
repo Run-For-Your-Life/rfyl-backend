@@ -13,7 +13,7 @@
     "db:local:logs": "docker compose -f docker-compose.local-db.yml logs -f mysql",
     "test:integration:db": "sh -c 'npm run db:local:up; status=0; node tests/realtime.persistence.integration.test.js || status=$?; node tests/leaderboard.integration.test.js || status=$?; npm run db:local:down; exit $status'",
     "test:all": "npm test && npm run test:integration:db",
-    "test": "node tests/smoke.test.js && node tests/build.test.js && node tests/src-structure.test.js && node tests/auth.integration.test.js && node tests/realtime.capture.test.js && node tests/realtime.gameplay.test.js && node tests/realtime.snapping.test.js && node tests/realtime.edgecases.test.js && node tests/realtime.persistence.test.js && node tests/map.reset.test.js",
+    "test": "node tests/smoke.test.js && node tests/build.test.js && node tests/src-structure.test.js && node tests/auth.integration.test.js && node tests/realtime.capture.test.js && node tests/realtime.gameplay.test.js && node tests/realtime.snapping.test.js && node tests/realtime.edgecases.test.js && node tests/realtime.persistence.test.js && node tests/map.reset.test.js && node tests/outside.boundary.test.js",
     "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
     "lint:fix": "npm run lint -- --fix",
     "prepare": "husky"
