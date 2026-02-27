@@ -174,6 +174,8 @@ export function joinPlayer(mapId: string, userId: string, username?: string): Re
 
 // Assign a random unused color index (0-9) for this map session.
 function selectColor(state: MapState): number {
+  console.error("Enter selectColor function...");
+
   const used = new Set<number>();
   for (const player of state.players.values()) {
     // Track colors already assigned to active players on this map.
@@ -195,6 +197,7 @@ function selectColor(state: MapState): number {
   if (available.length > 0) {
     // Randomly pick one free color to avoid deterministic assignment order.
     const randomIndex = Math.floor(Math.random() * available.length);
+    console.error("Color chosen: ", available[randomIndex]);
     return available[randomIndex] ?? 0;
   }
   // Fallback: should only happen when map is full or state is inconsistent.

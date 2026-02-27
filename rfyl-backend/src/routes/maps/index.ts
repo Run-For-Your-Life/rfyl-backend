@@ -21,6 +21,14 @@ import { broadcastEvents, registerRealtimeClient, removeRealtimeClient } from '.
 const router = Router();
 const geometryOps = createGeometryOps();
 
+// Coordinate boundary box (Corvallis area)
+const MAP_BOUNDS = {
+  west: -123.3569134930475,
+  south: 44.53938888888889,
+  east: -123.21991666666667,
+  north: 44.621307472972724,
+} as const;
+
 router.post('/:mapId/players/join', (req: Request, res: Response) => {
   const { mapId } = req.params;
   if (!mapId) {
@@ -61,7 +69,10 @@ router.post('/:mapId/locations', (req: Request, res: Response) => {
   }
   const rawUpdates = Array.isArray(req.body) ? req.body : [req.body];
   let accepted = 0;
-  let rejectedNotJoined = 0;
+  // Track if the user has joined the map yet
+  let rejectedNotJoined = false;
+  // Track if the user is out of the bounds for Corvallis
+  let rejectedOutOfBounds = false;
   const events: RealtimeEvent[] = [];
 
   for (const raw of rawUpdates) {
@@ -79,9 +90,14 @@ router.post('/:mapId/locations', (req: Request, res: Response) => {
     if (!userId || Number.isNaN(lat) || Number.isNaN(lng)) {
       continue;
     }
+    // If user has not joined or is out of Corvo bounds, do not proceed
     if (!hasPlayer(mapId, userId)) {
-      rejectedNotJoined += 1;
-      continue;
+      rejectedNotJoined = true;
+      continue; // do not proceed to ingestLocation()
+    }
+    if (!isWithinMapBounds(lat, lng)) {
+      rejectedOutOfBounds = true;
+      continue; // do not proceed to ingestLocation()
     }
     const ts = Number.isFinite((raw as { ts?: number }).ts)
       ? Number((raw as { ts?: number }).ts)
@@ -106,12 +122,24 @@ router.post('/:mapId/locations', (req: Request, res: Response) => {
 
   broadcastEvents(mapId, events);
 
-  if (accepted === 0 && rejectedNotJoined > 0) {
+  if (accepted === 0 && rejectedNotJoined) {
     res.status(409).json({
       error: 'player_not_joined',
       received: rawUpdates.length,
       accepted,
       rejectedNotJoined,
+      rejectedOutOfBounds,
+    });
+    return;
+  }
+
+  if (accepted === 0 && rejectedOutOfBounds) {
+    res.status(422).json({
+      error: 'out_of_bounds',
+      received: rawUpdates.length,
+      accepted,
+      rejectedNotJoined,
+      rejectedOutOfBounds,
     });
     return;
   }
@@ -120,6 +148,7 @@ router.post('/:mapId/locations', (req: Request, res: Response) => {
     received: rawUpdates.length,
     accepted,
     rejectedNotJoined,
+    rejectedOutOfBounds,
   });
 });
 
@@ -184,6 +213,10 @@ router.post('/:mapId/players/:userId/respawn', (req: Request, res: Response) => 
     const lng = Number(lngRaw);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       res.status(400).json({ error: 'lat and lng must be finite numbers' });
+      return;
+    }
+    if (!isWithinMapBounds(lat, lng)) {
+      res.status(422).json({ error: 'out_of_bounds' });
       return;
     }
     spawnPoint = { lat, lng, ts: Date.now() };
@@ -254,6 +287,15 @@ function matchesPassword(providedPassword: string, expectedPassword: string): bo
     return false;
   }
   return timingSafeEqual(provided, expected);
+}
+
+function isWithinMapBounds(lat: number, lng: number): boolean {
+  return (
+    lat >= MAP_BOUNDS.south &&
+    lat <= MAP_BOUNDS.north &&
+    lng >= MAP_BOUNDS.west &&
+    lng <= MAP_BOUNDS.east
+  );
 }
 
 export default router;
