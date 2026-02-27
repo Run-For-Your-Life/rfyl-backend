@@ -1,18 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 
 import { registerUser } from '../../services/authService.js';
-
-interface HttpError extends Error {
-  status?: number;
-}
-
-const toHttpError = (error: unknown, fallbackMessage: string): HttpError => {
-  if (error instanceof Error) {
-    return error as HttpError;
-  }
-
-  return new Error(fallbackMessage);
-};
+import { HttpError, toHttpError } from './shared.js';
 
 export const createRegisterRouter = (registerFn: typeof registerUser = registerUser) => {
   const router = Router();

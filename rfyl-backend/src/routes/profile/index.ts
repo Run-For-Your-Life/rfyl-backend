@@ -1,9 +1,14 @@
 import { Router } from 'express';
 
-import statsRoute from './stats.js';
+import { createProfileStatsRouter } from './stats.js';
 
-const router = Router();
+export const createProfileRouter = () => {
+  const router = Router();
 
-router.use(statsRoute);
+  router.use(createProfileStatsRouter());
 
+  return router;
+};
+
+const router = createProfileRouter();
 export default router;

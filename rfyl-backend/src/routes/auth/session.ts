@@ -2,32 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 
 import { getEnv } from '../../config/env.js';
 import { firebaseAuth } from '../../config/firebaseAdmin.js';
-
-interface HttpError extends Error {
-  status?: number;
-}
-
-const toHttpError = (error: unknown, fallbackMessage: string): HttpError => {
-  if (error instanceof Error) {
-    return error as HttpError;
-  }
-
-  return new Error(fallbackMessage);
-};
-
-const parseBearerToken = (req: Request): string | undefined => {
-  const header = req.headers.authorization;
-  if (!header) {
-    return undefined;
-  }
-
-  const [scheme, token] = header.split(' ');
-  if (scheme?.toLowerCase() !== 'bearer' || !token) {
-    return undefined;
-  }
-
-  return token;
-};
+import { HttpError, parseBearerToken, toHttpError } from './shared.js';
 
 export const createSessionRouter = () => {
   const router = Router();

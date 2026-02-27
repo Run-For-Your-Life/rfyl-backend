@@ -1,9 +1,14 @@
 import { Router } from 'express';
 
-import listRoute from './list.js';
+import { createLeaderboardListRouter } from './list.js';
 
-const router = Router();
+export const createLeaderboardRouter = () => {
+  const router = Router();
 
-router.use(listRoute);
+  router.use(createLeaderboardListRouter());
 
+  return router;
+};
+
+const router = createLeaderboardRouter();
 export default router;

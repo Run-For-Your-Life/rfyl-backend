@@ -1,9 +1,13 @@
 // src/routes/leaderboard/list.ts
 import { Router, Request, Response, NextFunction } from 'express';
 
-import { getLeaderboard } from '../../db/leaderboard.js';
-
-const router = Router();
+import {
+  getGlobalLeaderboard,
+  getGlobalLeaderboardForUser,
+  getLeaderboard,
+  getMapLeaderboard,
+  getMapLeaderboardForUser,
+} from '../../db/leaderboard.js';
 
 interface HttpError extends Error {
   status?: number;
@@ -45,6 +49,20 @@ function parseQueryNumber(
   return asNumber;
 }
 
+function parseQueryLimit(value: unknown): number {
+  const parsed = parseQueryNumber('limit', value, false);
+  if (parsed === undefined) {
+    return 100;
+  }
+  const floored = Math.floor(parsed);
+  if (floored < 1 || floored > 500) {
+    const err: HttpError = new Error('limit must be between 1 and 500');
+    err.status = 400;
+    throw err;
+  }
+  return floored;
+}
+
 /**
  * GET /api/leaderboard/leaderboard?week_id=1&match_id=1
  *
@@ -52,26 +70,80 @@ function parseQueryNumber(
  *   - week_id (required, number)
  *   - match_id (optional, number)
  */
-router.get(
-  '/leaderboard',
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const weekId = parseQueryNumber('week_id', req.query.week_id, true)!;
-      const matchId = parseQueryNumber('match_id', req.query.match_id, false);
+export const createLeaderboardListRouter = () => {
+  const router = Router();
 
-      const leaderboard = await getLeaderboard(weekId, matchId ?? null);
+  router.get('/global', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const limit = parseQueryLimit(req.query.limit);
+        const userId = parseQueryNumber('user_id', req.query.user_id, false);
+        const leaderboard = await getGlobalLeaderboard(limit);
+        const user = userId === undefined ? null : await getGlobalLeaderboardForUser(userId);
 
-      res.json({
-        week_id: weekId,
-        match_id: matchId ?? null,
-        leaderboard,
-      });
-    } catch (error: unknown) {
-      const err = error as HttpError;
-      err.status = err.status ?? 500;
-      next(err);
+        res.json({
+          scope: 'global',
+          limit,
+          leaderboard,
+          user,
+        });
+      } catch (error: unknown) {
+        const err = error as HttpError;
+        err.status = err.status ?? 500;
+        next(err);
+      }
     }
-  }
-);
+  );
 
+  router.get('/map/:mapId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const mapId = String(req.params.mapId ?? '').trim();
+        if (!mapId) {
+          const err: HttpError = new Error('mapId route parameter is required');
+          err.status = 400;
+          throw err;
+        }
+        const limit = parseQueryLimit(req.query.limit);
+        const userId = parseQueryNumber('user_id', req.query.user_id, false);
+        const leaderboard = await getMapLeaderboard(mapId, limit);
+        const user = userId === undefined ? null : await getMapLeaderboardForUser(mapId, userId);
+
+        res.json({
+          scope: 'map',
+          map_id: mapId,
+          limit,
+          leaderboard,
+          user,
+        });
+      } catch (error: unknown) {
+        const err = error as HttpError;
+        err.status = err.status ?? 500;
+        next(err);
+      }
+    }
+  );
+
+  router.get('/leaderboard', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const weekId = parseQueryNumber('week_id', req.query.week_id, true)!;
+        const matchId = parseQueryNumber('match_id', req.query.match_id, false);
+
+        const leaderboard = await getLeaderboard(weekId, matchId ?? null);
+
+        res.json({
+          week_id: weekId,
+          match_id: matchId ?? null,
+          leaderboard,
+        });
+      } catch (error: unknown) {
+        const err = error as HttpError;
+        err.status = err.status ?? 500;
+        next(err);
+      }
+    }
+  );
+
+  return router;
+};
+
+const router = createLeaderboardListRouter();
 export default router;
