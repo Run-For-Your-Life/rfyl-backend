@@ -7,6 +7,7 @@ import { appendRealtimeWal } from '../../../services/realtimePersistence';
 import { broadcastEvents } from '../../../services/realtimeStream';
 import type { AuthenticatedRequest } from '../auth';
 import { toTrimmedOptionalString } from '../auth';
+import { isWithinMapBounds } from '../bounds';
 
 type GeometryOps = ReturnType<typeof createGeometryOps>;
 
@@ -21,7 +22,8 @@ export function createLocationsRouter(geometryOps: GeometryOps): Router {
     }
     const rawUpdates = Array.isArray(req.body) ? req.body : [req.body];
     let accepted = 0;
-    let rejectedNotJoined = 0;
+    let rejectedNotJoined = false;
+    let rejectedOutOfBounds = false;
     const events: RealtimeEvent[] = [];
 
     for (const raw of rawUpdates) {
@@ -29,11 +31,7 @@ export function createLocationsRouter(geometryOps: GeometryOps): Router {
         continue;
       }
       const userIdInput = toTrimmedOptionalString((raw as { userId?: unknown }).userId);
-      const usernameInput = toTrimmedOptionalString((raw as { username?: unknown }).username);
-      if (
-        (userIdInput && userIdInput !== authReq.auth.userId) ||
-        (usernameInput && usernameInput !== authReq.auth.username)
-      ) {
+      if (userIdInput && userIdInput !== authReq.auth.userId) {
         res.status(403).json({ error: 'identity_mismatch' });
         return;
       }
@@ -45,13 +43,18 @@ export function createLocationsRouter(geometryOps: GeometryOps): Router {
       }
       const lat = Number((raw as { lat?: number }).lat);
       const lng = Number((raw as { lng?: number }).lng);
+      const usernameInput = toTrimmedOptionalString((raw as { username?: unknown }).username);
       if (Number.isNaN(lat) || Number.isNaN(lng)) {
         continue;
       }
       const userId = authReq.auth.userId;
-      const username = authReq.auth.username;
+      const username = usernameInput ?? authReq.auth.username;
       if (!hasPlayer(mapId, userId)) {
-        rejectedNotJoined += 1;
+        rejectedNotJoined = true;
+        continue;
+      }
+      if (!isWithinMapBounds(lat, lng)) {
+        rejectedOutOfBounds = true;
         continue;
       }
       const ts = Number.isFinite((raw as { ts?: number }).ts)
@@ -77,12 +80,24 @@ export function createLocationsRouter(geometryOps: GeometryOps): Router {
 
     broadcastEvents(mapId, events);
 
-    if (accepted === 0 && rejectedNotJoined > 0) {
+    if (accepted === 0 && rejectedNotJoined) {
       res.status(409).json({
         error: 'player_not_joined',
         received: rawUpdates.length,
         accepted,
         rejectedNotJoined,
+        rejectedOutOfBounds,
+      });
+      return;
+    }
+
+    if (accepted === 0 && rejectedOutOfBounds) {
+      res.status(422).json({
+        error: 'out_of_bounds',
+        received: rawUpdates.length,
+        accepted,
+        rejectedNotJoined,
+        rejectedOutOfBounds,
       });
       return;
     }
@@ -91,6 +106,7 @@ export function createLocationsRouter(geometryOps: GeometryOps): Router {
       received: rawUpdates.length,
       accepted,
       rejectedNotJoined,
+      rejectedOutOfBounds,
     });
   });
   return router;

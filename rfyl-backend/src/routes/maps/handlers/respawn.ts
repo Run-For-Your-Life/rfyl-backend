@@ -5,6 +5,7 @@ import { getMapSnapshot, hasPlayer, respawnPlayer } from '../../../services/real
 import { appendRealtimeWal } from '../../../services/realtimePersistence';
 import { broadcastEvents } from '../../../services/realtimeStream';
 import type { AuthenticatedRequest } from '../auth';
+import { isWithinMapBounds } from '../bounds';
 
 export function createRespawnRouter(): Router {
   const router = createRouter();
@@ -38,6 +39,10 @@ export function createRespawnRouter(): Router {
       const lng = Number(lngRaw);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
         res.status(400).json({ error: 'lat and lng must be finite numbers' });
+        return;
+      }
+      if (!isWithinMapBounds(lat, lng)) {
+        res.status(422).json({ error: 'out_of_bounds' });
         return;
       }
       spawnPoint = { lat, lng, ts: Date.now() };

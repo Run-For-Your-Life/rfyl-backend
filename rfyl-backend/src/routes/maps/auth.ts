@@ -45,10 +45,6 @@ export function deriveUsername(decoded: VerifiedIdentityToken): string {
   if (trimmedName) {
     return trimmedName;
   }
-  const trimmedEmail = toTrimmedOptionalString(decoded.email);
-  if (trimmedEmail) {
-    return trimmedEmail;
-  }
   return decoded.uid;
 }
 
