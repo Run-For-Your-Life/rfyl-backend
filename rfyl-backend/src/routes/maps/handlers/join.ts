@@ -23,12 +23,8 @@ export function createJoinRouter(): Router {
       res.status(403).json({ error: 'identity_mismatch' });
       return;
     }
-    if (usernameInput && usernameInput !== authReq.auth.username) {
-      res.status(403).json({ error: 'identity_mismatch' });
-      return;
-    }
     const userId = authReq.auth.userId;
-    const username = authReq.auth.username;
+    const username = usernameInput ?? authReq.auth.username;
 
     const existed = hasPlayer(mapId, userId);
     if (!existed && isMapAtCapacity(mapId)) {
