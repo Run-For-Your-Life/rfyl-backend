@@ -14,14 +14,14 @@ type LeaderboardRow = RowDataPacket & {
   user_id: number;
   username: string;
   total_area_m2: number;
-  rank: number;
+  rank_position: number;
 };
 
 const mapLeaderboardRow = (row: LeaderboardRow): LeaderboardRecord => ({
   userId: row.user_id,
   username: row.username,
   totalAreaM2: row.total_area_m2,
-  rank: row.rank,
+  rank: row.rank_position,
 });
 
 async function queryLeaderboard(
@@ -36,7 +36,7 @@ async function queryLeaderboard(
       SUM(t.area_m2) AS total_area_m2,
       RANK() OVER (
         ORDER BY SUM(t.area_m2) DESC, u.id ASC
-      ) AS rank
+      ) AS rank_position
     FROM territories t
     JOIN users u ON u.id = t.owner_id
     WHERE ${whereSql}
@@ -45,7 +45,7 @@ async function queryLeaderboard(
     LIMIT ?
   `;
 
-  const [rows] = await pool.execute<LeaderboardRow[]>(sql, [...whereParams, limit]);
+  const [rows] = await pool.query<LeaderboardRow[]>(sql, [...whereParams, limit]);
   return rows.map(mapLeaderboardRow);
 }
 
@@ -62,19 +62,19 @@ async function queryUserRank(
         SUM(t.area_m2) AS total_area_m2,
         RANK() OVER (
           ORDER BY SUM(t.area_m2) DESC, u.id ASC
-        ) AS rank
+        ) AS rank_position
       FROM territories t
       JOIN users u ON u.id = t.owner_id
       WHERE ${whereSql}
       GROUP BY u.id, u.username
     )
-    SELECT user_id, username, total_area_m2, rank
+    SELECT user_id, username, total_area_m2, rank_position
     FROM ranked
     WHERE user_id = ?
     LIMIT 1
   `;
 
-  const [rows] = await pool.execute<LeaderboardRow[]>(sql, [...whereParams, userId]);
+  const [rows] = await pool.query<LeaderboardRow[]>(sql, [...whereParams, userId]);
   return rows[0] ? mapLeaderboardRow(rows[0]) : null;
 }
 
