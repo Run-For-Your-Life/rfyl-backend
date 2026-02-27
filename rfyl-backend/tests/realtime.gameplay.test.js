@@ -142,6 +142,32 @@ try {
     clearMapState(mapId);
   }
 
+  // Moving in a closed loop while inside should not start a capture.
+  {
+    const mapId = "inside-loop-no-capture";
+    const userId = "player-inside-loop";
+    const send = createSender(mapId, userId);
+    send(0, 0);
+
+    const seeded = getPlayer(mapId, userId);
+    const bounds = getBounds(seeded.territory);
+    const loopPoints = [
+      [bounds.centerLat + bounds.dLat * 0.1, bounds.centerLng],
+      [bounds.centerLat, bounds.centerLng + bounds.dLng * 0.1],
+      [bounds.centerLat - bounds.dLat * 0.1, bounds.centerLng],
+      [bounds.centerLat, bounds.centerLng - bounds.dLng * 0.1],
+      [bounds.centerLat + bounds.dLat * 0.1, bounds.centerLng],
+    ];
+
+    const events = loopPoints.flatMap(([lat, lng]) => send(lat, lng));
+    assert.ok(!events.some((event) => event.type === "territory"), "did not expect territory event");
+
+    const player = getPlayer(mapId, userId);
+    assert.strictEqual(player.isOutside, false);
+    assert.strictEqual(player.path, null);
+    clearMapState(mapId);
+  }
+
   // Ghost capture immediately transitions to player (no additional respawn step).
   {
     const mapId = "ghost-respawn";
