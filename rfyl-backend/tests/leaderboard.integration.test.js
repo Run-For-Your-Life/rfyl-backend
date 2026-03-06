@@ -6,9 +6,10 @@ const dotenv = require("dotenv");
 console.log("Running leaderboard integration test (local DB)...");
 
 const envCandidates = [
+  process.env.ENV_FILE ? path.resolve(process.cwd(), process.env.ENV_FILE) : null,
   path.resolve(__dirname, "../../.env.local"),
   path.resolve(__dirname, "../../.env"),
-];
+].filter(Boolean);
 
 for (const candidate of envCandidates) {
   const result = dotenv.config({ path: candidate });
@@ -41,10 +42,10 @@ const mapIdLocal = `lb-map-local-${runId}`;
 const mapIdOther = `lb-map-other-${runId}`;
 const seededUserIds = [];
 
-async function insertUser(username, email) {
+async function insertUser(firebaseUid) {
   const [result] = await pool.execute(
-    "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
-    [username, email, "test-password-hash"]
+    "INSERT INTO users (firebase_uid) VALUES (?)",
+    [firebaseUid]
   );
   seededUserIds.push(result.insertId);
   return result.insertId;
@@ -67,9 +68,9 @@ async function run() {
     await pool.execute("INSERT INTO map_sessions (id, status) VALUES (?, 'active')", [mapIdLocal]);
     await pool.execute("INSERT INTO map_sessions (id, status) VALUES (?, 'active')", [mapIdOther]);
 
-    userA = await insertUser(`lb-a-${runId}`, `lb-a-${runId}@example.com`);
-    userB = await insertUser(`lb-b-${runId}`, `lb-b-${runId}@example.com`);
-    userC = await insertUser(`lb-c-${runId}`, `lb-c-${runId}@example.com`);
+    userA = await insertUser(`lb-a-${runId}`);
+    userB = await insertUser(`lb-b-${runId}`);
+    userC = await insertUser(`lb-c-${runId}`);
 
     // Local map totals:
     // A: 300, C: 200, B: 100

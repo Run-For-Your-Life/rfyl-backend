@@ -7,12 +7,14 @@ const { startCloudSqlProxy } = require('./helpers/cloudsqlProxy');
 
 console.log('Running auth integration tests (real DB)...');
 
-// Load environment variables from a nearby .env (prefers repo root ../../.env).
 const envCandidates = [
+  process.env.ENV_FILE ? path.resolve(process.cwd(), process.env.ENV_FILE) : null,
+  path.resolve(__dirname, '../../.env.local'),
   path.resolve(__dirname, '../../.env'),
+  path.resolve(__dirname, '../.env.local'),
   path.resolve(__dirname, '../.env'),
   path.resolve(process.cwd(), '.env'),
-];
+].filter(Boolean);
 for (const candidate of envCandidates) {
   const result = dotenv.config({ path: candidate });
   if (!result.error) {
@@ -43,7 +45,6 @@ const maybeStartProxy = async () => {
     socketDir,
   });
 
-  // Force the app to use the proxy socket for this run.
   process.env.DB_SOCKET_PATH = socketPath;
   delete process.env.DB_HOST;
   delete process.env.DB_PORT;
@@ -52,17 +53,14 @@ const maybeStartProxy = async () => {
 };
 
 const run = async () => {
-  const email = `integration-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
-  const username = `runner-${Math.random().toString(16).slice(2)}`;
-  const password = 'P@ssw0rd!';
-  let createdUserId;
+  const firebaseUid = `integration-firebase-uid-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   let stopProxy;
   let pool;
+  let schemaReady = false;
 
   try {
     stopProxy = await maybeStartProxy();
 
-    // Ensure dist output is current so imports use the latest code.
     try {
       execSync('npm run build --silent', { stdio: 'inherit' });
     } catch (err) {
@@ -75,51 +73,43 @@ const run = async () => {
     if (missingEnv.length > 0) {
       console.error(
         `Missing required DB env vars: ${missingEnv.join(', ')}. ` +
-        'Set them (or a .env) so the DB client can connect.',
+          'Set them (or a .env) so the DB client can connect.'
       );
       process.exit(1);
     }
 
-    // Load env (side effect) before importing dbclient/authService compiled output.
     require('../dist/config/env.js'); // eslint-disable-line @typescript-eslint/no-var-requires
-    const { registerUser, authenticateUser } = require('../dist/services/authService.js');
-    const { findUserByEmail, findUserByUsername } = require('../dist/db/queries.js');
+    const { ensureUserByFirebaseUid } = require('../dist/services/authService.js');
     const poolModule = require('../dist/db/dbclient.js');
     pool = poolModule.default || poolModule;
 
-    const registered = await registerUser(username, email, password);
-    createdUserId = registered.id;
-    assert.strictEqual(registered.email, email, 'Registered user should echo email');
-    assert.ok(Number.isFinite(createdUserId), 'New user should have an id');
+    await assertUsersSchema(pool);
+    schemaReady = true;
 
-    const fetchedByEmail = await findUserByEmail(email);
-    assert.ok(fetchedByEmail, 'User should persist in DB by email');
-    assert.strictEqual(fetchedByEmail.id, createdUserId, 'Fetched user should match created id (email)');
+    const first = await ensureUserByFirebaseUid(firebaseUid);
+    assert.strictEqual(first.firebaseUid, firebaseUid, 'expected synced UID to match');
+    assert.strictEqual(first.created, true, 'expected first ensure call to create user');
 
-    const fetchedByUsername = await findUserByUsername(username);
-    assert.ok(fetchedByUsername, 'User should persist in DB by username');
-    assert.strictEqual(fetchedByUsername.id, createdUserId, 'Fetched user should match created id (username)');
+    const second = await ensureUserByFirebaseUid(firebaseUid);
+    assert.strictEqual(second.firebaseUid, firebaseUid, 'expected same UID on re-sync');
+    assert.strictEqual(second.created, false, 'expected second ensure call to be idempotent');
 
-    const loggedIn = await authenticateUser(username, password);
-    assert.strictEqual(loggedIn.id, createdUserId, 'Auth should return the same user');
+    const [[row]] = await pool.query(
+      'SELECT firebase_uid FROM users WHERE firebase_uid = ? LIMIT 1',
+      [firebaseUid]
+    );
+    assert.ok(row, 'expected synced user row to exist');
+    assert.strictEqual(row.firebase_uid, firebaseUid, 'expected DB row UID to match');
 
-    let duplicateError;
-    try {
-      await registerUser(username, email);
-    } catch (err) {
-      duplicateError = err;
-    }
-    assert.ok(duplicateError, 'Duplicate registration should throw');
-    assert.strictEqual(duplicateError.status, 409, 'Duplicate registration should set 409 status');
-
-    console.log('Auth integration tests passed (DB connection verified).');
-
+    console.log('Auth integration tests passed (Firebase UID sync verified).');
   } catch (err) {
     console.error('Auth integration tests failed:', err);
     process.exitCode = 1;
   } finally {
+    if (pool && schemaReady) {
+      await cleanup(pool, firebaseUid);
+    }
     if (pool) {
-      await cleanup(pool, email);
       if (typeof pool.end === 'function') {
         await pool.end();
       }
@@ -130,11 +120,28 @@ const run = async () => {
   }
 };
 
-const cleanup = async (pool, email) => {
+const cleanup = async (pool, firebaseUid) => {
   try {
-    await pool.execute('DELETE FROM users WHERE email = ?', [email]);
+    await pool.execute('DELETE FROM users WHERE firebase_uid = ?', [firebaseUid]);
   } catch (cleanupErr) {
     console.warn('Cleanup skipped/failed:', cleanupErr?.message ?? cleanupErr);
+  }
+};
+
+const assertUsersSchema = async (pool) => {
+  const [rows] = await pool.query(
+    `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'users'`
+  );
+  const columns = new Set(rows.map((row) => row.COLUMN_NAME));
+  const missing = ['firebase_uid'].filter((name) => !columns.has(name));
+  if (missing.length > 0) {
+    throw new Error(
+      `users table schema is outdated; missing columns: ${missing.join(', ')}. ` +
+        'Apply the firebase_uid schema/migration before running auth integration tests.'
+    );
   }
 };
 
