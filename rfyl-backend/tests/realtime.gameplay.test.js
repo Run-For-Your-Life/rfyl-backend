@@ -11,6 +11,7 @@ const {
   clearMapState,
   getMapSnapshot,
   ingestLocation,
+  joinPlayer,
   respawnPlayer,
 } = require("../src/services/realtimeEngine.ts");
 const { createGeometryOps } = require("../src/services/realtimeOps.ts");
@@ -119,6 +120,35 @@ try {
     makeGhostPath(mapId, userId, bounds, send, 0.004);
     const updated = getPlayer(mapId, userId);
     assert.strictEqual(updated.ghostState, "ghost_vulnerable");
+    assert.strictEqual(updated.ghostEligible, true, "expected vulnerable ghosts to be eligible");
+    clearMapState(mapId);
+  }
+
+  // Joined + respawned ghost should still become vulnerable after long enough outside path.
+  {
+    const mapId = "ghost-vulnerable-respawn-flow";
+    const userId = "ghost-respawn-vuln";
+    const username = expectedUsername(userId);
+    const joinEvents = joinPlayer(mapId, userId, username);
+    assert.ok(joinEvents.length > 0, "expected join to emit initial state");
+
+    const t0 = Date.now();
+    const respawnEvents = respawnPlayer(mapId, userId, { lat: 0, lng: 0, ts: t0 });
+    assert.ok(respawnEvents.length > 0, "expected respawn to create territory");
+
+    const seeded = getPlayer(mapId, userId);
+    const bounds = getBounds(seeded.territory);
+    ingestLocation(mapId, userId, { lat: bounds.centerLat, lng: bounds.centerLng, ts: t0 + 1 }, ops, username);
+    ingestLocation(
+      mapId,
+      userId,
+      { lat: bounds.minLat - 0.004, lng: bounds.centerLng, ts: t0 + 2 },
+      ops,
+      username
+    );
+    const updated = getPlayer(mapId, userId);
+    assert.strictEqual(updated.ghostState, "ghost_vulnerable");
+    assert.strictEqual(updated.ghostEligible, true);
     clearMapState(mapId);
   }
 

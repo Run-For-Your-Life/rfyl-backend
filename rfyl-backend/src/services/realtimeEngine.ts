@@ -290,7 +290,6 @@ export function ingestLocation(
         player.territory.geometry
       );
       if (!reentryBoundary && !reverseReentryBoundary) {
-        // Intersection is required for boundary snapping; if unresolved, drop invalid active path.
         player.path = [];
         player.isOutside = false;
         player.pathLengthMeters = 0;
