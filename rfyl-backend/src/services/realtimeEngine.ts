@@ -5,7 +5,6 @@ import {
   lineStringIntersects,
   pointInPolygon,
   segmentPolygonBoundaryIntersection,
-  snapPointToPolygonBoundary,
   splitRingAtPoints,
 } from './realtimeGeometry';
 import type {
@@ -280,11 +279,30 @@ export function ingestLocation(
       const lastOutsidePosition: Position = lastOutside
         ? [lastOutside.lng, lastOutside.lat]
         : position;
-      const reentryBoundary =
-        segmentPolygonBoundaryIntersection(lastOutsidePosition, position, player.territory.geometry) ??
-        snapPointToPolygonBoundary(position, player.territory.geometry).point;
-      const fallbackReentryBoundary = snapPointToPolygonBoundary(position, player.territory.geometry).point;
-      const captureEvents = closePath(state, player, reentryBoundary, ops, fallbackReentryBoundary);
+      const reentryBoundary = segmentPolygonBoundaryIntersection(
+        lastOutsidePosition,
+        position,
+        player.territory.geometry
+      );
+      const reverseReentryBoundary = segmentPolygonBoundaryIntersection(
+        position,
+        lastOutsidePosition,
+        player.territory.geometry
+      );
+      if (!reentryBoundary && !reverseReentryBoundary) {
+        // Intersection is required for boundary snapping; if unresolved, drop invalid active path.
+        player.path = [];
+        player.isOutside = false;
+        player.pathLengthMeters = 0;
+        return events;
+      }
+      const captureEvents = closePath(
+        state,
+        player,
+        reentryBoundary ?? reverseReentryBoundary ?? lastOutsidePosition,
+        ops,
+        reverseReentryBoundary
+      );
       events.push(...captureEvents);
     }
     if (player.ghostState !== 'player' && player.territory) {
@@ -387,9 +405,15 @@ function extendPath(
       position,
       player.territory.geometry
     );
-    const snapped =
-      boundaryIntersection ??
-      snapPointToPolygonBoundary(lastInsidePosition, player.territory.geometry).point;
+    const reverseBoundaryIntersection = segmentPolygonBoundaryIntersection(
+      position,
+      lastInsidePosition,
+      player.territory.geometry
+    );
+    const snapped = boundaryIntersection ?? reverseBoundaryIntersection;
+    if (!snapped) {
+      return events;
+    }
     player.path = [
       { lat: snapped[1], lng: snapped[0], ts: lastInside.ts },
       { lat: point.lat, lng: point.lng, ts: point.ts },
@@ -462,7 +486,7 @@ function closePath(
   player: PlayerState,
   reentryBoundary: Position,
   ops: GeometryOps,
-  fallbackReentryBoundary?: Position
+  fallbackReentryBoundary?: Position | null
 ): RealtimeEvent[] {
   const events: RealtimeEvent[] = [];
   if (!player.territory || player.path.length < 2) {
@@ -503,36 +527,50 @@ function closePath(
     }
 
     const ring = chooseTerritoryBoundaryRing(player.territory, exitPoint, candidate);
-    const split = splitRingAtPoints(ring, exitPoint, candidate);
-    const boundary = chooseBoundarySegment(pathPositions, split.forward, split.backward);
-    const ringClosed = buildClosedRing(pathPositions, boundary);
-    if (process.env.DEBUG_CAPTURE === '1') {
-      console.warn('[capture] ring sizes', {
-        boundaryPoints: boundary.length,
-        ringClosedPoints: ringClosed.length,
-      });
+    const split = splitRingAtPoints(ring, candidate, exitPoint);
+    const preferredBoundary = chooseBoundarySegment(pathPositions, split.forward, split.backward);
+    const alternateBoundary =
+      preferredBoundary === split.forward ? split.backward : split.forward;
+    const boundaryAttempts = [preferredBoundary, alternateBoundary];
+
+    for (const boundary of boundaryAttempts) {
+      const ringClosed = normalizeCaptureRing(buildClosedRing(pathPositions, boundary));
+      if (process.env.DEBUG_CAPTURE === '1') {
+        console.warn('[capture] ring sizes', {
+          boundaryPoints: boundary.length,
+          ringClosedPoints: ringClosed.length,
+        });
+      }
+
+      const attemptCaptured: TerritoryFeature = {
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [ringClosed],
+        },
+        properties: {
+          userId: player.userId,
+          updatedAt: Date.now(),
+        },
+      };
+
+      try {
+        player.territory = ops.union(player.territory, attemptCaptured);
+        captured = attemptCaptured;
+        break;
+      } catch (error) {
+        if (process.env.DEBUG_CAPTURE === '1') {
+          console.warn('[capture] union failed, trying next boundary/reentry candidate', {
+            error,
+            candidate,
+            ringClosed,
+          });
+        }
+      }
     }
 
-    const attemptCaptured: TerritoryFeature = {
-      type: 'Feature',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [ringClosed],
-      },
-      properties: {
-        userId: player.userId,
-        updatedAt: Date.now(),
-      },
-    };
-
-    try {
-      player.territory = ops.union(player.territory, attemptCaptured);
-      captured = attemptCaptured;
+    if (captured) {
       break;
-    } catch (error) {
-      if (process.env.DEBUG_CAPTURE === '1') {
-        console.warn('[capture] union failed, trying fallback', { error });
-      }
     }
   }
 
@@ -596,6 +634,28 @@ function closePath(
   player.isOutside = false;
   player.pathLengthMeters = 0;
   return events;
+}
+
+function normalizeCaptureRing(points: Position[]): Position[] {
+  if (points.length === 0) {
+    return points;
+  }
+  const deduped: Position[] = [];
+  for (const point of points) {
+    const prev = deduped[deduped.length - 1];
+    if (!prev || !samePosition(prev, point)) {
+      deduped.push(point);
+    }
+  }
+  if (deduped.length === 0) {
+    return deduped;
+  }
+  const first = deduped[0];
+  const last = deduped[deduped.length - 1];
+  if (first && last && !samePosition(first, last)) {
+    deduped.push([first[0], first[1]]);
+  }
+  return deduped;
 }
 
 function buildPathEvent(mapId: string, player: PlayerState): RealtimeEvent {
@@ -772,12 +832,17 @@ function canBeKnocked(player: PlayerState): boolean {
 }
 
 function updateGhostVulnerability(player: PlayerState): void {
-  if (player.ghostState !== 'ghost_invulnerable') {
+  if (player.ghostState === 'player') {
+    player.ghostEligible = false;
     return;
   }
   if (player.pathLengthMeters >= GHOST_VULNERABLE_PATH_METERS) {
     player.ghostState = 'ghost_vulnerable';
+    player.ghostEligible = true;
+    return;
   }
+  player.ghostState = 'ghost_invulnerable';
+  player.ghostEligible = false;
 }
 
 function updateTerritoryMetrics(player: PlayerState): void {

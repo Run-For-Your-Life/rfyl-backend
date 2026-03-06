@@ -387,30 +387,27 @@ function orientation(a: Position, b: Position, c: Position): number {
 }
 
 function segmentIntersectionPoint(a1: Position, a2: Position, b1: Position, b2: Position): Position | null {
-  const [x1, y1] = a1;
-  const [x2, y2] = a2;
-  const [x3, y3] = b1;
-  const [x4, y4] = b2;
+  const rx = a2[0] - a1[0];
+  const ry = a2[1] - a1[1];
+  const sx = b2[0] - b1[0];
+  const sy = b2[1] - b1[1];
+  const qpx = b1[0] - a1[0];
+  const qpy = b1[1] - a1[1];
 
-  const denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-  const denomScale =
-    (Math.abs(x1 - x2) + Math.abs(y1 - y2)) *
-    (Math.abs(x3 - x4) + Math.abs(y3 - y4));
+  const denominator = rx * sy - ry * sx;
+  const denomScale = (Math.abs(rx) + Math.abs(ry)) * (Math.abs(sx) + Math.abs(sy));
   if (Math.abs(denominator) <= EPS * denomScale) {
     return null;
   }
 
-  const det1 = x1 * y2 - y1 * x2;
-  const det2 = x3 * y4 - y3 * x4;
-  const px = (det1 * (x3 - x4) - (x1 - x2) * det2) / denominator;
-  const py = (det1 * (y3 - y4) - (y1 - y2) * det2) / denominator;
-  const intersection: Position = [px, py];
-
-  if (!onSegment(a1, intersection, a2) || !onSegment(b1, intersection, b2)) {
+  const t = (qpx * sy - qpy * sx) / denominator;
+  const u = (qpx * ry - qpy * rx) / denominator;
+  const tol = 1e-7;
+  if (t < -tol || t > 1 + tol || u < -tol || u > 1 + tol) {
     return null;
   }
 
-  return intersection;
+  return [a1[0] + t * rx, a1[1] + t * ry];
 }
 
 function segmentParameter(start: Position, end: Position, point: Position): number {
