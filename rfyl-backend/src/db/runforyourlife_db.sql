@@ -32,15 +32,11 @@ create table users
 (
     id            bigint unsigned auto_increment
         primary key,
-    username      varchar(40)                         not null,
-    email         varchar(255)                        not null,
-    password_hash varchar(255)                        not null,
+    firebase_uid  varchar(128)                        not null,
     created_at    timestamp default CURRENT_TIMESTAMP not null,
     updated_at    timestamp default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
-    constraint users_email_uq
-        unique (email),
-    constraint users_username_uq
-        unique (username)
+    constraint users_firebase_uid_uq
+        unique (firebase_uid)
 )
     collate = utf8mb4_unicode_ci;
 
@@ -204,4 +200,3 @@ create spatial index terr_poly_gix
 
 create index terr_week_match_owner_idx
     on territories (week_id, match_id, owner_id);
-
