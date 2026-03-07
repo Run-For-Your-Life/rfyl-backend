@@ -1,60 +1,60 @@
-import bcrypt from 'bcrypt';
+import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 
-import { findUserByEmail, findUserByUsername, insertUser, UserRecord } from '../db/queries.js';
+import pool from '../db/dbclient.js';
 
-export type PublicUser = {
-    id: number;
-    username: string;
-    email: string;
-    createdAt: Date;
+export type SyncedUser = {
+  firebaseUid: string;
+  createdAt: Date | null;
+  created: boolean;
 };
 
-const toPublicUser = (user: UserRecord): PublicUser => ({
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    createdAt: user.createdAt,
-});
-
-const SALT_ROUNDS = 10;
-
-export const registerUser = async (username: string, email: string, password: string): Promise<PublicUser> => {
-    const [existingEmail, existingUsername] = await Promise.all([
-        findUserByEmail(email),
-        findUserByUsername(username),
-    ]);
-
-    if (existingEmail) {
-        const error = new Error('Email already in use');
-        (error as Error & { status?: number }).status = 409;
-        throw error;
-    }
-
-    if (existingUsername) {
-        const error = new Error('Username already in use');
-        (error as Error & { status?: number }).status = 409;
-        throw error;
-    }
-
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    const newUser = await insertUser(username, email, passwordHash);
-    return toPublicUser(newUser);
+type UserRow = RowDataPacket & {
+  firebase_uid: string;
+  created_at?: Date | null;
 };
 
-export const authenticateUser = async (username: string, password: string): Promise<PublicUser> => {
-    const user = await findUserByUsername(username);
-    if (!user) {
-        const error = new Error('Invalid username or password');
-        (error as Error & { status?: number }).status = 401;
-        throw error;
-    }
+const findByFirebaseUid = async (firebaseUid: string): Promise<SyncedUser | null> => {
+  const [rows] = await pool.query<UserRow[]>(
+    'SELECT firebase_uid, created_at FROM users WHERE firebase_uid = ? LIMIT 1',
+    [firebaseUid]
+  );
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    firebaseUid: row.firebase_uid,
+    createdAt: row.created_at ?? null,
+    created: false,
+  };
+};
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-        const error = new Error('Invalid username or password');
-        (error as Error & { status?: number }).status = 401;
-        throw error;
-    }
+export const ensureUserByFirebaseUid = async (firebaseUid: string): Promise<SyncedUser> => {
+  const existing = await findByFirebaseUid(firebaseUid);
+  if (existing) {
+    return existing;
+  }
 
-    return toPublicUser(user);
+  try {
+    await pool.execute<ResultSetHeader>(
+      'INSERT INTO users (firebase_uid) VALUES (?)',
+      [firebaseUid]
+    );
+  } catch (error) {
+    const sqlError = error as { code?: string };
+    if (sqlError.code !== 'ER_DUP_ENTRY') {
+      throw error;
+    }
+  }
+
+  const created = await findByFirebaseUid(firebaseUid);
+  if (created) {
+    return { ...created, created: true };
+  }
+
+  return {
+    firebaseUid,
+    createdAt: null,
+    created: true,
+  };
 };

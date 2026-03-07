@@ -55,3 +55,10 @@ jobs:
       - name: Run tests
         working-directory: .
         run: npm test
+
+      - name: Run DB integration tests
+        working-directory: .
+        run: |
+          node tests/auth.integration.test.js
+          node tests/realtime.persistence.integration.test.js
+          node tests/leaderboard.integration.test.js

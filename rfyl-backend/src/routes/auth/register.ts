@@ -1,27 +1,43 @@
 import { Router, Request, Response, NextFunction } from 'express';
 
-import { registerUser } from '../../services/authService.js';
-import { HttpError, toHttpError } from './shared.js';
+import { firebaseAuth } from '../../config/firebaseAdmin.js';
+import { ensureUserByFirebaseUid } from '../../services/authService.js';
+import { HttpError, parseBearerToken, toHttpError } from './shared.js';
 
-export const createRegisterRouter = (registerFn: typeof registerUser = registerUser) => {
+export const createRegisterRouter = () => {
   const router = Router();
 
+  // Firebase handles credential registration. Backend register syncs Firebase UID into app DB.
   router.post('/register', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, username, password } = req.body;
-      if (typeof email !== 'string' || typeof username !== 'string' || typeof password !== 'string') {
-          const validationError = new Error('Email, username, and password are required') as HttpError;
-          validationError.status = 400;
-          throw validationError;
+      const idToken = parseBearerToken(req) ?? req.body?.idToken;
+      if (typeof idToken !== 'string' || idToken.length === 0) {
+        const validationError = new Error('ID token is required') as HttpError;
+        validationError.status = 400;
+        throw validationError;
       }
 
-      const user = await registerFn(username, email, password);
+      const decodedToken = await firebaseAuth.verifyIdToken(idToken);
+      const synced = await ensureUserByFirebaseUid(decodedToken.uid);
+      const requestedUsername = String(req.body?.username ?? '').trim();
+      const requestedEmail = String(req.body?.email ?? '').trim();
+      const displayName = String(decodedToken.name ?? '').trim();
+      const tokenEmail = typeof decodedToken.email === 'string' ? decodedToken.email : '';
+      const email = tokenEmail || requestedEmail || '';
+      const username =
+        requestedUsername || displayName || (email ? email.split('@')[0] ?? decodedToken.uid : decodedToken.uid);
 
-      res.status(201).json({ user });
+      res.status(synced.created ? 201 : 200).json({
+        user: {
+          uid: decodedToken.uid,
+          username,
+          email: email || null,
+        },
+      });
     } catch (err: unknown) {
       const error = toHttpError(err, 'Registration failed');
       error.status = error.status ?? 400;
-      next(error); 
+      next(error);
     }
   });
 

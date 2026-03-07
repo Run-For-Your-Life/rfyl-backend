@@ -12,14 +12,15 @@ export type LeaderboardRecord = {
 
 type LeaderboardRow = RowDataPacket & {
   user_id: number;
-  username: string;
+  firebase_uid: string;
   total_area_m2: number;
   rank_position: number;
 };
 
 const mapLeaderboardRow = (row: LeaderboardRow): LeaderboardRecord => ({
   userId: row.user_id,
-  username: row.username,
+  // Keep API shape stable while using Firebase UID as the canonical identity.
+  username: row.firebase_uid,
   totalAreaM2: row.total_area_m2,
   rank: row.rank_position,
 });
@@ -32,7 +33,7 @@ async function queryLeaderboard(
   const sql = `
     SELECT 
       u.id AS user_id,
-      u.username,
+      u.firebase_uid,
       SUM(t.area_m2) AS total_area_m2,
       RANK() OVER (
         ORDER BY SUM(t.area_m2) DESC, u.id ASC
@@ -40,7 +41,7 @@ async function queryLeaderboard(
     FROM territories t
     JOIN users u ON u.id = t.owner_id
     WHERE ${whereSql}
-    GROUP BY u.id, u.username
+    GROUP BY u.id, u.firebase_uid
     ORDER BY total_area_m2 DESC, user_id ASC
     LIMIT ?
   `;
@@ -58,7 +59,7 @@ async function queryUserRank(
     WITH ranked AS (
       SELECT
         u.id AS user_id,
-        u.username,
+        u.firebase_uid,
         SUM(t.area_m2) AS total_area_m2,
         RANK() OVER (
           ORDER BY SUM(t.area_m2) DESC, u.id ASC
@@ -66,9 +67,9 @@ async function queryUserRank(
       FROM territories t
       JOIN users u ON u.id = t.owner_id
       WHERE ${whereSql}
-      GROUP BY u.id, u.username
+      GROUP BY u.id, u.firebase_uid
     )
-    SELECT user_id, username, total_area_m2, rank_position
+    SELECT user_id, firebase_uid, total_area_m2, rank_position
     FROM ranked
     WHERE user_id = ?
     LIMIT 1
