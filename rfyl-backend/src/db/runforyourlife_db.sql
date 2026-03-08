@@ -1,3 +1,13 @@
+create table bug_report
+(
+    id           int auto_increment
+        primary key,
+    firebase_uid varchar(256)                        not null,
+    issue        varchar(1024)                       not null,
+    occurred_at  datetime                            null,
+    created_at   timestamp default CURRENT_TIMESTAMP null
+);
+
 create table realtime_events
 (
     event_id     varchar(128)                       not null
@@ -30,12 +40,12 @@ create table realtime_map_snapshots
 
 create table users
 (
-    id            bigint unsigned auto_increment
+    id           bigint unsigned auto_increment
         primary key,
-    firebase_uid  varchar(128)                        not null,
-    created_at    timestamp default CURRENT_TIMESTAMP not null,
-    updated_at    timestamp default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
-    constraint users_firebase_uid_uq
+    firebase_uid varchar(256)                        not null,
+    created_at   timestamp default CURRENT_TIMESTAMP not null,
+    updated_at   timestamp default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
+    constraint firebase_uid_index
         unique (firebase_uid)
 )
     collate = utf8mb4_unicode_ci;
@@ -104,6 +114,38 @@ create table map_sessions
 )
     collate = utf8mb4_unicode_ci;
 
+create table knockouts
+(
+    id           bigint unsigned auto_increment
+        primary key,
+    map_id       varchar(64) collate utf8mb4_unicode_ci null,
+    match_id     bigint unsigned                        null,
+    week_id      bigint unsigned                        null,
+    victim_uid   varchar(128)                           not null,
+    attacker_uid varchar(128)                           not null,
+    reason       varchar(32)                            not null,
+    occurred_at  datetime                               not null,
+    created_at   timestamp default CURRENT_TIMESTAMP    not null,
+    constraint knockouts_map_fk
+        foreign key (map_id) references map_sessions (id)
+            on update cascade on delete set null,
+    constraint knockouts_match_fk
+        foreign key (match_id) references matches (id)
+            on update cascade on delete set null,
+    constraint knockouts_week_fk
+        foreign key (week_id) references weeks (id)
+            on update cascade on delete set null
+);
+
+create index knockouts_attacker_idx
+    on knockouts (attacker_uid);
+
+create index knockouts_map_idx
+    on knockouts (map_id);
+
+create index knockouts_victim_idx
+    on knockouts (victim_uid);
+
 create index map_sessions_scope_idx
     on map_sessions (week_id, match_id);
 
@@ -130,6 +172,7 @@ create table runs
     route_geojson longtext collate utf8mb4_bin          not null,
     source        varchar(32) default 'mobile'          null,
     created_at    timestamp   default CURRENT_TIMESTAMP not null,
+    user_uid      varchar(128)                          not null,
     constraint runs_map_fk
         foreign key (map_id) references map_sessions (id)
             on update cascade on delete set null,
@@ -160,11 +203,14 @@ create index runs_scope_idx
 create index runs_user_time_idx
     on runs (user_id, started_at);
 
+create index runs_user_uid_idx
+    on runs (user_uid);
+
 create table territories
 (
     id         bigint unsigned auto_increment
         primary key,
-    owner_id   bigint unsigned                    not null,
+    owner_uid  varchar(128)                       not null,
     map_id     varchar(64)                        null,
     week_id    bigint unsigned                    null,
     match_id   bigint unsigned                    null,
@@ -175,12 +221,8 @@ create table territories
     constraint terr_map_fk
         foreign key (map_id) references map_sessions (id)
             on update cascade on delete set null,
-    constraint terr_match_fk
-        foreign key (match_id) references matches (id)
-            on update cascade on delete set null,
-    constraint terr_owner_fk
-        foreign key (owner_id) references users (id)
-            on update cascade on delete cascade,
+    constraint terr_owner_uid
+        foreign key (owner_uid) references users (firebase_uid),
     constraint terr_week_fk
         foreign key (week_id) references weeks (id)
             on update cascade on delete set null,
@@ -190,13 +232,17 @@ create table territories
     collate = utf8mb4_unicode_ci;
 
 create index terr_map_owner_idx
-    on territories (map_id, owner_id);
+    on territories (map_id, owner_uid);
+
+create index terr_match_fk_2
+    on territories (match_id);
 
 create index terr_owner_idx
-    on territories (owner_id);
+    on territories (owner_uid);
 
 create spatial index terr_poly_gix
     on territories (polygon);
 
 create index terr_week_match_owner_idx
-    on territories (week_id, match_id, owner_id);
+    on territories (week_id, match_id, owner_uid);
+
