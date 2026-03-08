@@ -212,7 +212,6 @@ create table territories
         primary key,
     owner_uid  varchar(128)                       not null,
     map_id     varchar(64)                        null,
-    week_id    bigint unsigned                    null,
     match_id   bigint unsigned                    null,
     polygon    geometry                           not null,
     area_m2    double                             not null,
@@ -223,9 +222,6 @@ create table territories
             on update cascade on delete set null,
     constraint terr_owner_uid
         foreign key (owner_uid) references users (firebase_uid),
-    constraint terr_week_fk
-        foreign key (week_id) references weeks (id)
-            on update cascade on delete set null,
     constraint terr_area_chk
         check (`area_m2` >= 0)
 )
@@ -234,15 +230,12 @@ create table territories
 create index terr_map_owner_idx
     on territories (map_id, owner_uid);
 
-create index terr_match_fk_2
-    on territories (match_id);
+create index terr_match_owner_idx
+    on territories (match_id, owner_uid);
 
 create index terr_owner_idx
     on territories (owner_uid);
 
 create spatial index terr_poly_gix
     on territories (polygon);
-
-create index terr_week_match_owner_idx
-    on territories (week_id, match_id, owner_uid);
 

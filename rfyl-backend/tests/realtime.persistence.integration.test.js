@@ -32,6 +32,7 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "rfyl-persist-int-"));
 const walPath = path.join(tempDir, "realtime-events.jsonl");
 const cursorPath = path.join(tempDir, "realtime-events.cursor");
 const mapId = `persist-int-${Date.now()}`;
+const ownerUid = `player-int-${Date.now()}`;
 
 process.env.REALTIME_WAL_PATH = walPath;
 process.env.REALTIME_WAL_CURSOR_PATH = cursorPath;
@@ -46,14 +47,24 @@ const makeSnapshot = () => ({
   mapId,
   players: [
     {
-      userId: "player-int",
+      userId: ownerUid,
       isOutside: false,
-      territory: null,
+      territory: {
+        type: "Feature",
+        geometry: {
+          type: "Polygon",
+          coordinates: [[[0, 0], [0, 1], [1, 1], [1, 0], [0, 0]]],
+        },
+        properties: {
+          userId: ownerUid,
+          updatedAt: Date.now(),
+        },
+      },
       path: null,
       ghostState: "player",
       ghostEligible: false,
       pathLengthMeters: 0,
-      territoryAreaSqMeters: 0,
+      territoryAreaSqMeters: 34,
     },
   ],
 });
@@ -61,7 +72,7 @@ const makeSnapshot = () => ({
 const stateEvent = {
   type: "state",
   mapId,
-  userId: "player-int",
+  userId: ownerUid,
   ghostState: "player",
   ghostEligible: false,
   pathLengthMeters: 12,
@@ -81,6 +92,10 @@ const run = async () => {
       "SELECT map_id, last_event_id FROM realtime_map_snapshots WHERE map_id = ?",
       [mapId]
     );
+    const [territoryRows] = await pool.query(
+      "SELECT owner_uid, map_id, area_m2, ST_AsGeoJSON(polygon) AS polygon_json FROM territories WHERE map_id = ? AND owner_uid = ?",
+      [mapId, ownerUid]
+    );
 
     assert.ok(eventRows.length >= 1, "expected persisted realtime event row");
     assert.strictEqual(eventRows[0].map_id, mapId, "expected event map_id match");
@@ -91,6 +106,14 @@ const run = async () => {
       typeof snapshotRows[0].last_event_id === "string" && snapshotRows[0].last_event_id.length > 0,
       "expected snapshot last_event_id"
     );
+    assert.strictEqual(territoryRows.length, 1, "expected one materialized territory row");
+    assert.strictEqual(territoryRows[0].owner_uid, ownerUid, "expected territory owner uid match");
+    assert.strictEqual(territoryRows[0].map_id, mapId, "expected territory map_id match");
+    assert.strictEqual(Number(territoryRows[0].area_m2), 34, "expected territory area from snapshot");
+    assert.ok(
+      typeof territoryRows[0].polygon_json === "string" && territoryRows[0].polygon_json.includes("\"Polygon\""),
+      "expected territory polygon geometry"
+    );
 
     console.log("Realtime persistence integration test passed.");
   } catch (err) {
@@ -99,8 +122,11 @@ const run = async () => {
     process.exitCode = 1;
   } finally {
     try {
+      await pool.execute("DELETE FROM territories WHERE map_id = ?", [mapId]);
       await pool.execute("DELETE FROM realtime_events WHERE map_id = ?", [mapId]);
       await pool.execute("DELETE FROM realtime_map_snapshots WHERE map_id = ?", [mapId]);
+      await pool.execute("DELETE FROM map_sessions WHERE id = ?", [mapId]);
+      await pool.execute("DELETE FROM users WHERE firebase_uid = ?", [ownerUid]);
       if (typeof pool.end === "function") {
         await pool.end();
       }

@@ -24,6 +24,7 @@ const {
 
 const persistedEventsBatches = [];
 const persistedSnapshotsBatches = [];
+const persistedTerritoryBatches = [];
 
 const fakeWriters = {
   insertRealtimeEvents: async (events) => {
@@ -32,20 +33,23 @@ const fakeWriters = {
   upsertMapSnapshots: async (snapshots) => {
     persistedSnapshotsBatches.push(snapshots);
   },
+  syncMapTerritories: async (snapshots) => {
+    persistedTerritoryBatches.push(snapshots);
+  },
 };
 
-const makeSnapshot = (mapId, userId) => ({
+const makeSnapshot = (mapId, userId, territory = null, territoryAreaSqMeters = 0) => ({
   mapId,
   players: [
     {
       userId,
       isOutside: false,
-      territory: null,
+      territory,
       path: null,
       ghostState: "player",
       ghostEligible: false,
       pathLengthMeters: 0,
-      territoryAreaSqMeters: 0,
+      territoryAreaSqMeters,
     },
   ],
 });
@@ -55,6 +59,14 @@ const makeSnapshot = (mapId, userId) => ({
     __setRealtimePersistenceWritersForTest(fakeWriters);
 
     const mapId = "persist-map";
+    const territory = {
+      type: "Feature",
+      geometry: {
+        type: "Polygon",
+        coordinates: [[[0, 0], [0, 1], [1, 1], [1, 0], [0, 0]]],
+      },
+      properties: { userId: "player-1", updatedAt: Date.now() },
+    };
     const event = {
       type: "state",
       mapId,
@@ -65,7 +77,7 @@ const makeSnapshot = (mapId, userId) => ({
       territoryAreaSqMeters: 34,
     };
 
-    appendRealtimeWal(mapId, [event], makeSnapshot(mapId, "player-1"));
+    appendRealtimeWal(mapId, [event], makeSnapshot(mapId, "player-1", territory, 34));
 
     await flushRealtimeWalNow();
     assert.ok(fs.existsSync(walPath), "expected WAL file to be created");
@@ -77,6 +89,7 @@ const makeSnapshot = (mapId, userId) => ({
 
     assert.strictEqual(persistedEventsBatches.length, 1, "expected one flushed event batch");
     assert.strictEqual(persistedSnapshotsBatches.length, 1, "expected one flushed snapshot batch");
+    assert.strictEqual(persistedTerritoryBatches.length, 1, "expected one flushed territory batch");
     assert.strictEqual(persistedEventsBatches[0].length, 1, "expected one persisted event");
     assert.strictEqual(
       persistedEventsBatches[0][0].eventType,
@@ -89,6 +102,21 @@ const makeSnapshot = (mapId, userId) => ({
       "expected snapshot map id"
     );
     assert.strictEqual(
+      persistedTerritoryBatches[0][0].mapId,
+      mapId,
+      "expected territory snapshot map id"
+    );
+    assert.strictEqual(
+      persistedTerritoryBatches[0][0].territories[0].ownerUid,
+      "player-1",
+      "expected territory owner uid"
+    );
+    assert.strictEqual(
+      persistedTerritoryBatches[0][0].territories[0].areaM2,
+      34,
+      "expected territory area to match snapshot"
+    );
+    assert.strictEqual(
       fs.readFileSync(cursorPath, "utf8").trim(),
       "1",
       "expected cursor to advance to 1"
@@ -99,6 +127,11 @@ const makeSnapshot = (mapId, userId) => ({
       persistedEventsBatches.length,
       1,
       "expected second flush to no-op when cursor is at end"
+    );
+    assert.strictEqual(
+      persistedTerritoryBatches.length,
+      1,
+      "expected territory sync to no-op when cursor is at end"
     );
 
     const secondEvent = {
@@ -116,6 +149,7 @@ const makeSnapshot = (mapId, userId) => ({
 
     await flushRealtimeWalNow();
     assert.strictEqual(persistedEventsBatches.length, 2, "expected second WAL batch to flush");
+    assert.strictEqual(persistedTerritoryBatches.length, 2, "expected second territory batch to flush");
     assert.strictEqual(
       persistedEventsBatches[1][0].eventType,
       "path",
