@@ -4,6 +4,8 @@ import path from 'node:path';
 import { getEnv, getNumberEnv } from '../config/env.js';
 import {
     insertRealtimeEvents,
+    syncMapTerritories,
+    type PersistedMapTerritories,
     type PersistedMapSnapshot,
     type PersistedRealtimeEvent,
     upsertMapSnapshots,
@@ -32,9 +34,11 @@ let walAppendQueue: Promise<void> = Promise.resolve();
 let writers: {
     insertRealtimeEvents: (events: PersistedRealtimeEvent[]) => Promise<void>;
     upsertMapSnapshots: (snapshots: PersistedMapSnapshot[]) => Promise<void>;
+    syncMapTerritories: (snapshots: PersistedMapTerritories[]) => Promise<void>;
 } = {
     insertRealtimeEvents,
     upsertMapSnapshots,
+    syncMapTerritories,
 };
 
 export function appendRealtimeWal(mapId: string, events: RealtimeEvent[], snapshot: MapSnapshot): void {
@@ -120,8 +124,10 @@ async function flushRealtimeWal(): Promise<void> {
 
         const events: PersistedRealtimeEvent[] = [];
         const latestSnapshots = new Map<string, PersistedMapSnapshot>();
+        const latestTerritorySnapshots = new Map<string, { snapshot: MapSnapshot; updatedAt: Date }>();
 
         for (const record of records) {
+            const updatedAt = new Date(record.createdAt);
             for (let i = 0; i < record.events.length; i += 1) {
                 const event = record.events[i];
                 if (!event) {
@@ -133,7 +139,7 @@ async function flushRealtimeWal(): Promise<void> {
                     userId: event.userId,
                     eventType: event.type,
                     payloadJson: JSON.stringify(event),
-                    occurredAt: new Date(record.createdAt),
+                    occurredAt: updatedAt,
                 });
             }
 
@@ -141,13 +147,15 @@ async function flushRealtimeWal(): Promise<void> {
             latestSnapshots.set(record.mapId, {
                 mapId: record.mapId,
                 snapshotJson: JSON.stringify(record.snapshot),
-                updatedAt: new Date(record.createdAt),
+                updatedAt,
                 lastEventId,
             });
+            latestTerritorySnapshots.set(record.mapId, { snapshot: record.snapshot, updatedAt });
         }
 
         await writers.insertRealtimeEvents(events);
         await writers.upsertMapSnapshots(Array.from(latestSnapshots.values()));
+        await writers.syncMapTerritories(buildMapTerritories(latestTerritorySnapshots));
 
         writeCursor(end);
     } catch (error) {
@@ -177,6 +185,93 @@ function parseRecords(lines: string[]): WalBatchRecord[] {
         }
     }
     return records;
+}
+
+type SnapshotPlayer = {
+    userId?: unknown;
+    territory?: unknown;
+    territoryAreaSqMeters?: unknown;
+};
+
+type SnapshotTerritory = {
+    geometry?: unknown;
+};
+
+type SnapshotGeometry = {
+    type?: unknown;
+    coordinates?: unknown;
+};
+
+function buildMapTerritories(
+    snapshots: Map<string, { snapshot: MapSnapshot; updatedAt: Date }>
+): PersistedMapTerritories[] {
+    const output: PersistedMapTerritories[] = [];
+    for (const [mapId, snapshotRecord] of snapshots.entries()) {
+        const territoriesByOwner = new Map<string, PersistedMapTerritories['territories'][number]>();
+        const players = Array.isArray(snapshotRecord.snapshot.players) ? snapshotRecord.snapshot.players : [];
+        for (const rawPlayer of players as unknown[]) {
+            if (!rawPlayer || typeof rawPlayer !== 'object') {
+                continue;
+            }
+            const ownerUid = normalizeOwnerUid((rawPlayer as SnapshotPlayer).userId);
+            if (!ownerUid) {
+                continue;
+            }
+            territoriesByOwner.set(ownerUid, {
+                ownerUid,
+                territoryGeoJson: toTerritoryGeometryJson((rawPlayer as SnapshotPlayer).territory),
+                areaM2: toNonNegativeNumber((rawPlayer as SnapshotPlayer).territoryAreaSqMeters),
+            });
+        }
+        output.push({
+            mapId,
+            updatedAt: snapshotRecord.updatedAt,
+            territories: Array.from(territoriesByOwner.values()),
+        });
+    }
+    return output;
+}
+
+function normalizeOwnerUid(value: unknown): string | null {
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+}
+
+function toTerritoryGeometryJson(territory: unknown): string | null {
+    if (!territory || typeof territory !== 'object') {
+        return null;
+    }
+    const geometry = (territory as SnapshotTerritory).geometry;
+    if (!isSupportedGeometry(geometry)) {
+        return null;
+    }
+    try {
+        return JSON.stringify(geometry);
+    } catch {
+        return null;
+    }
+}
+
+function isSupportedGeometry(geometry: unknown): boolean {
+    if (!geometry || typeof geometry !== 'object') {
+        return false;
+    }
+    const typed = geometry as SnapshotGeometry;
+    if (typed.type !== 'Polygon' && typed.type !== 'MultiPolygon') {
+        return false;
+    }
+    return Array.isArray(typed.coordinates);
+}
+
+function toNonNegativeNumber(value: unknown): number {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) {
+        return 0;
+    }
+    return numeric;
 }
 
 function nextBatchId(): string {
@@ -230,6 +325,7 @@ export function __setRealtimePersistenceWritersForTest(
         | {
               insertRealtimeEvents: (events: PersistedRealtimeEvent[]) => Promise<void>;
               upsertMapSnapshots: (snapshots: PersistedMapSnapshot[]) => Promise<void>;
+              syncMapTerritories: (snapshots: PersistedMapTerritories[]) => Promise<void>;
           }
         | null
 ): void {
@@ -237,6 +333,7 @@ export function __setRealtimePersistenceWritersForTest(
         writers = {
             insertRealtimeEvents,
             upsertMapSnapshots,
+            syncMapTerritories,
         };
         return;
     }
