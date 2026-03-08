@@ -25,6 +25,7 @@ const {
 const persistedEventsBatches = [];
 const persistedSnapshotsBatches = [];
 const persistedTerritoryBatches = [];
+const persistedKnockoutBatches = [];
 
 const fakeWriters = {
   insertRealtimeEvents: async (events) => {
@@ -35,6 +36,11 @@ const fakeWriters = {
   },
   syncMapTerritories: async (snapshots) => {
     persistedTerritoryBatches.push(snapshots);
+  },
+  syncKnockouts: async (knockouts) => {
+    if (knockouts.length > 0) {
+      persistedKnockoutBatches.push(knockouts);
+    }
   },
 };
 
@@ -90,6 +96,7 @@ const makeSnapshot = (mapId, userId, territory = null, territoryAreaSqMeters = 0
     assert.strictEqual(persistedEventsBatches.length, 1, "expected one flushed event batch");
     assert.strictEqual(persistedSnapshotsBatches.length, 1, "expected one flushed snapshot batch");
     assert.strictEqual(persistedTerritoryBatches.length, 1, "expected one flushed territory batch");
+    assert.strictEqual(persistedKnockoutBatches.length, 0, "expected no knockout batch for state event");
     assert.strictEqual(persistedEventsBatches[0].length, 1, "expected one persisted event");
     assert.strictEqual(
       persistedEventsBatches[0][0].eventType,
@@ -133,6 +140,11 @@ const makeSnapshot = (mapId, userId, territory = null, territoryAreaSqMeters = 0
       1,
       "expected territory sync to no-op when cursor is at end"
     );
+    assert.strictEqual(
+      persistedKnockoutBatches.length,
+      0,
+      "expected knockout sync to no-op when cursor is at end"
+    );
 
     const secondEvent = {
       type: "path",
@@ -159,6 +171,47 @@ const makeSnapshot = (mapId, userId, territory = null, territoryAreaSqMeters = 0
       fs.readFileSync(cursorPath, "utf8").trim(),
       "2",
       "expected cursor to advance to 2"
+    );
+
+    const knockoutEvent = {
+      type: "knockout",
+      mapId,
+      userId: "victim-1",
+      username: "victim-1",
+      byUserId: "attacker-1",
+      byUsername: "attacker-1",
+      reason: "path-cross",
+    };
+
+    appendRealtimeWal(mapId, [knockoutEvent], makeSnapshot(mapId, "victim-1"));
+
+    await flushRealtimeWalNow();
+    assert.strictEqual(persistedEventsBatches.length, 3, "expected knockout event batch to flush");
+    assert.strictEqual(persistedKnockoutBatches.length, 1, "expected one knockout batch");
+    assert.strictEqual(
+      persistedKnockoutBatches[0][0].victimUid,
+      "victim-1",
+      "expected persisted victim uid"
+    );
+    assert.strictEqual(
+      persistedKnockoutBatches[0][0].attackerUid,
+      "attacker-1",
+      "expected persisted attacker uid"
+    );
+    assert.strictEqual(
+      persistedKnockoutBatches[0][0].reason,
+      "path-cross",
+      "expected persisted knockout reason"
+    );
+    assert.ok(
+      typeof persistedKnockoutBatches[0][0].sourceEventId === "string" &&
+        persistedKnockoutBatches[0][0].sourceEventId.length > 0,
+      "expected persisted source event id"
+    );
+    assert.strictEqual(
+      fs.readFileSync(cursorPath, "utf8").trim(),
+      "3",
+      "expected cursor to advance to 3"
     );
 
     __setRealtimePersistenceWritersForTest(null);

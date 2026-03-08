@@ -118,9 +118,9 @@ create table knockouts
 (
     id           bigint unsigned auto_increment
         primary key,
+    source_event_id varchar(128)                       null,
     map_id       varchar(64) collate utf8mb4_unicode_ci null,
     match_id     bigint unsigned                        null,
-    week_id      bigint unsigned                        null,
     victim_uid   varchar(128)                           not null,
     attacker_uid varchar(128)                           not null,
     reason       varchar(32)                            not null,
@@ -131,9 +131,6 @@ create table knockouts
             on update cascade on delete set null,
     constraint knockouts_match_fk
         foreign key (match_id) references matches (id)
-            on update cascade on delete set null,
-    constraint knockouts_week_fk
-        foreign key (week_id) references weeks (id)
             on update cascade on delete set null
 );
 
@@ -142,6 +139,9 @@ create index knockouts_attacker_idx
 
 create index knockouts_map_idx
     on knockouts (map_id);
+
+create unique index knockouts_source_event_uq
+    on knockouts (source_event_id);
 
 create index knockouts_victim_idx
     on knockouts (victim_uid);

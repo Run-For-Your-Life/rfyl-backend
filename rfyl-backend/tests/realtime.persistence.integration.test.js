@@ -33,6 +33,7 @@ const walPath = path.join(tempDir, "realtime-events.jsonl");
 const cursorPath = path.join(tempDir, "realtime-events.cursor");
 const mapId = `persist-int-${Date.now()}`;
 const ownerUid = `player-int-${Date.now()}`;
+const attackerUid = `attacker-int-${Date.now()}`;
 
 process.env.REALTIME_WAL_PATH = walPath;
 process.env.REALTIME_WAL_CURSOR_PATH = cursorPath;
@@ -79,9 +80,19 @@ const stateEvent = {
   territoryAreaSqMeters: 34,
 };
 
+const knockoutEvent = {
+  type: "knockout",
+  mapId,
+  userId: ownerUid,
+  username: ownerUid,
+  byUserId: attackerUid,
+  byUsername: attackerUid,
+  reason: "path-cross",
+};
+
 const run = async () => {
   try {
-    appendRealtimeWal(mapId, [stateEvent], makeSnapshot());
+    appendRealtimeWal(mapId, [stateEvent, knockoutEvent], makeSnapshot());
     await flushRealtimeWalNow();
 
     const [eventRows] = await pool.query(
@@ -95,6 +106,10 @@ const run = async () => {
     const [territoryRows] = await pool.query(
       "SELECT owner_uid, map_id, area_m2, ST_AsGeoJSON(polygon) AS polygon_json FROM territories WHERE map_id = ? AND owner_uid = ?",
       [mapId, ownerUid]
+    );
+    const [knockoutRows] = await pool.query(
+      "SELECT source_event_id, map_id, victim_uid, attacker_uid, reason FROM knockouts WHERE map_id = ? AND victim_uid = ? AND attacker_uid = ?",
+      [mapId, ownerUid, attackerUid]
     );
 
     assert.ok(eventRows.length >= 1, "expected persisted realtime event row");
@@ -114,6 +129,15 @@ const run = async () => {
       typeof territoryRows[0].polygon_json === "string" && territoryRows[0].polygon_json.includes("\"Polygon\""),
       "expected territory polygon geometry"
     );
+    assert.strictEqual(knockoutRows.length, 1, "expected one materialized knockout row");
+    assert.strictEqual(knockoutRows[0].map_id, mapId, "expected knockout map_id match");
+    assert.strictEqual(knockoutRows[0].victim_uid, ownerUid, "expected knockout victim uid");
+    assert.strictEqual(knockoutRows[0].attacker_uid, attackerUid, "expected knockout attacker uid");
+    assert.strictEqual(knockoutRows[0].reason, "path-cross", "expected knockout reason");
+    assert.ok(
+      typeof knockoutRows[0].source_event_id === "string" && knockoutRows[0].source_event_id.length > 0,
+      "expected knockout source_event_id for idempotency"
+    );
 
     console.log("Realtime persistence integration test passed.");
   } catch (err) {
@@ -122,6 +146,7 @@ const run = async () => {
     process.exitCode = 1;
   } finally {
     try {
+      await pool.execute("DELETE FROM knockouts WHERE map_id = ?", [mapId]);
       await pool.execute("DELETE FROM territories WHERE map_id = ?", [mapId]);
       await pool.execute("DELETE FROM realtime_events WHERE map_id = ?", [mapId]);
       await pool.execute("DELETE FROM realtime_map_snapshots WHERE map_id = ?", [mapId]);

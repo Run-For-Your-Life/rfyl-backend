@@ -4,7 +4,9 @@ import path from 'node:path';
 import { getEnv, getNumberEnv } from '../config/env.js';
 import {
     insertRealtimeEvents,
+    syncKnockouts,
     syncMapTerritories,
+    type PersistedKnockout,
     type PersistedMapTerritories,
     type PersistedMapSnapshot,
     type PersistedRealtimeEvent,
@@ -35,10 +37,12 @@ let writers: {
     insertRealtimeEvents: (events: PersistedRealtimeEvent[]) => Promise<void>;
     upsertMapSnapshots: (snapshots: PersistedMapSnapshot[]) => Promise<void>;
     syncMapTerritories: (snapshots: PersistedMapTerritories[]) => Promise<void>;
+    syncKnockouts: (knockouts: PersistedKnockout[]) => Promise<void>;
 } = {
     insertRealtimeEvents,
     upsertMapSnapshots,
     syncMapTerritories,
+    syncKnockouts,
 };
 
 export function appendRealtimeWal(mapId: string, events: RealtimeEvent[], snapshot: MapSnapshot): void {
@@ -123,6 +127,7 @@ async function flushRealtimeWal(): Promise<void> {
         }
 
         const events: PersistedRealtimeEvent[] = [];
+        const knockouts: PersistedKnockout[] = [];
         const latestSnapshots = new Map<string, PersistedMapSnapshot>();
         const latestTerritorySnapshots = new Map<string, { snapshot: MapSnapshot; updatedAt: Date }>();
 
@@ -141,6 +146,16 @@ async function flushRealtimeWal(): Promise<void> {
                     payloadJson: JSON.stringify(event),
                     occurredAt: updatedAt,
                 });
+                if (isKnockoutEvent(event)) {
+                    knockouts.push({
+                        sourceEventId: `${record.batchId}:${i}`,
+                        mapId: record.mapId,
+                        victimUid: event.userId,
+                        attackerUid: event.byUserId,
+                        reason: event.reason,
+                        occurredAt: updatedAt,
+                    });
+                }
             }
 
             const lastEventId = `${record.batchId}:${Math.max(0, record.events.length - 1)}`;
@@ -156,6 +171,7 @@ async function flushRealtimeWal(): Promise<void> {
         await writers.insertRealtimeEvents(events);
         await writers.upsertMapSnapshots(Array.from(latestSnapshots.values()));
         await writers.syncMapTerritories(buildMapTerritories(latestTerritorySnapshots));
+        await writers.syncKnockouts(knockouts);
 
         writeCursor(end);
     } catch (error) {
@@ -202,6 +218,8 @@ type SnapshotGeometry = {
     coordinates?: unknown;
 };
 
+type KnockoutEvent = Extract<RealtimeEvent, { type: 'knockout' }>;
+
 function buildMapTerritories(
     snapshots: Map<string, { snapshot: MapSnapshot; updatedAt: Date }>
 ): PersistedMapTerritories[] {
@@ -230,6 +248,10 @@ function buildMapTerritories(
         });
     }
     return output;
+}
+
+function isKnockoutEvent(event: RealtimeEvent): event is KnockoutEvent {
+    return event.type === 'knockout';
 }
 
 function normalizeOwnerUid(value: unknown): string | null {
@@ -326,6 +348,7 @@ export function __setRealtimePersistenceWritersForTest(
               insertRealtimeEvents: (events: PersistedRealtimeEvent[]) => Promise<void>;
               upsertMapSnapshots: (snapshots: PersistedMapSnapshot[]) => Promise<void>;
               syncMapTerritories: (snapshots: PersistedMapTerritories[]) => Promise<void>;
+              syncKnockouts: (knockouts: PersistedKnockout[]) => Promise<void>;
           }
         | null
 ): void {
@@ -334,6 +357,7 @@ export function __setRealtimePersistenceWritersForTest(
             insertRealtimeEvents,
             upsertMapSnapshots,
             syncMapTerritories,
+            syncKnockouts,
         };
         return;
     }
