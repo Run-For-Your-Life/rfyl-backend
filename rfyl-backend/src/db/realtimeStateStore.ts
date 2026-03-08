@@ -28,6 +28,15 @@ export type PersistedMapTerritories = {
     territories: PersistedMapTerritory[];
 };
 
+export type PersistedKnockout = {
+    sourceEventId: string;
+    mapId: string;
+    victimUid: string;
+    attackerUid: string;
+    reason: string;
+    occurredAt: Date;
+};
+
 export async function insertRealtimeEvents(events: PersistedRealtimeEvent[]): Promise<void> {
     if (events.length === 0) {
         return;
@@ -178,4 +187,62 @@ export async function syncMapTerritories(snapshots: PersistedMapTerritories[]): 
     } finally {
         connection.release();
     }
+}
+
+export async function syncKnockouts(knockouts: PersistedKnockout[]): Promise<void> {
+    if (knockouts.length === 0) {
+        return;
+    }
+
+    const latestBySourceEventId = new Map<string, PersistedKnockout>();
+    for (const knockout of knockouts) {
+        const sourceEventId = knockout.sourceEventId.trim();
+        const mapId = knockout.mapId.trim();
+        const victimUid = knockout.victimUid.trim();
+        const attackerUid = knockout.attackerUid.trim();
+        const reason = knockout.reason.trim();
+        if (!sourceEventId || !mapId || !victimUid || !attackerUid || !reason) {
+            continue;
+        }
+        latestBySourceEventId.set(sourceEventId, {
+            sourceEventId,
+            mapId,
+            victimUid,
+            attackerUid,
+            reason,
+            occurredAt: knockout.occurredAt,
+        });
+    }
+
+    const normalized = Array.from(latestBySourceEventId.values());
+    if (normalized.length === 0) {
+        return;
+    }
+
+    const mapIds = Array.from(new Set(normalized.map((knockout) => knockout.mapId)));
+    const mapPlaceholders = mapIds.map(() => '(?)').join(', ');
+    await pool.query(
+        `INSERT IGNORE INTO map_sessions (id) VALUES ${mapPlaceholders}`,
+        mapIds
+    );
+
+    const placeholders = normalized.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+    const values: Array<string | Date> = [];
+    for (const knockout of normalized) {
+        values.push(
+            knockout.sourceEventId,
+            knockout.mapId,
+            knockout.victimUid,
+            knockout.attackerUid,
+            knockout.reason,
+            knockout.occurredAt
+        );
+    }
+
+    await pool.query(
+        `INSERT IGNORE INTO knockouts
+        (source_event_id, map_id, victim_uid, attacker_uid, reason, occurred_at)
+        VALUES ${placeholders}`,
+        values
+    );
 }
