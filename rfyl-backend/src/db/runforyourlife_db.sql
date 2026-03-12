@@ -208,22 +208,25 @@ create index runs_user_uid_idx
 
 create table territories
 (
-    id         bigint unsigned auto_increment
+    id          bigint unsigned auto_increment
         primary key,
-    owner_uid  varchar(128)                       not null,
-    map_id     varchar(64)                        null,
-    match_id   bigint unsigned                    null,
-    polygon    geometry                           not null,
-    area_m2    double                             not null,
-    claimed_at datetime default CURRENT_TIMESTAMP not null,
-    updated_at datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
+    owner_uid   varchar(128)                       not null,
+    map_id      varchar(64)                        null,
+    match_id    bigint unsigned                    null,
+    polygon     geometry                           not null,
+    area_m2     double                             not null,
+    perimeter_m double                             not null,
+    claimed_at  datetime default CURRENT_TIMESTAMP not null,
+    updated_at  datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
     constraint terr_map_fk
         foreign key (map_id) references map_sessions (id)
             on update cascade on delete set null,
     constraint terr_owner_uid
         foreign key (owner_uid) references users (firebase_uid),
     constraint terr_area_chk
-        check (`area_m2` >= 0)
+        check (`area_m2` >= 0),
+    constraint terr_perimeter_chk
+        check (`perimeter_m` >= 0)
 )
     collate = utf8mb4_unicode_ci;
 
@@ -238,4 +241,20 @@ create index terr_owner_idx
 
 create spatial index terr_poly_gix
     on territories (polygon);
+
+create definer = rfyl_user@`%` trigger territories_bi_perimeter
+    before insert
+    on territories
+    for each row
+BEGIN
+  SET NEW.perimeter_m = COALESCE(ST_Length(ST_ExteriorRing(NEW.polygon)), 0);
+END;
+
+create definer = rfyl_user@`%` trigger territories_bu_perimeter
+    before update
+    on territories
+    for each row
+BEGIN
+  SET NEW.perimeter_m = COALESCE(ST_Length(ST_ExteriorRing(NEW.polygon)), 0);
+END;
 

@@ -114,6 +114,11 @@ const makeSnapshot = (mapId, userId, territory = null, territoryAreaSqMeters = 0
       "expected territory snapshot map id"
     );
     assert.strictEqual(
+      persistedTerritoryBatches[0][0].replaceAll,
+      false,
+      "expected normal territory sync to be incremental"
+    );
+    assert.strictEqual(
       persistedTerritoryBatches[0][0].territories[0].ownerUid,
       "player-1",
       "expected territory owner uid"
@@ -208,10 +213,32 @@ const makeSnapshot = (mapId, userId, territory = null, territoryAreaSqMeters = 0
         persistedKnockoutBatches[0][0].sourceEventId.length > 0,
       "expected persisted source event id"
     );
+
+    const resetEvent = {
+      type: "reset",
+      mapId,
+      userId: "system",
+      username: "system",
+      reason: "manual",
+    };
+
+    appendRealtimeWal(mapId, [resetEvent], { mapId, players: [] });
+    await flushRealtimeWalNow();
+    assert.strictEqual(persistedTerritoryBatches.length, 4, "expected reset territory batch");
+    assert.strictEqual(
+      persistedTerritoryBatches[3][0].replaceAll,
+      true,
+      "expected reset to request full territory replacement"
+    );
+    assert.strictEqual(
+      persistedTerritoryBatches[3][0].territories.length,
+      0,
+      "expected reset snapshot to clear map territories"
+    );
     assert.strictEqual(
       fs.readFileSync(cursorPath, "utf8").trim(),
-      "3",
-      "expected cursor to advance to 3"
+      "4",
+      "expected cursor to advance to 4"
     );
 
     __setRealtimePersistenceWritersForTest(null);
