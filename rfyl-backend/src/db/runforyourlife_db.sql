@@ -242,19 +242,17 @@ create index terr_owner_idx
 create spatial index terr_poly_gix
     on territories (polygon);
 
-create definer = rfyl_user@`%` trigger territories_bi_perimeter
+drop trigger if exists territories_bi_perimeter;
+create trigger territories_bi_perimeter
     before insert
     on territories
     for each row
-BEGIN
-  SET NEW.perimeter_m = COALESCE(ST_Length(ST_ExteriorRing(NEW.polygon)), 0);
-END;
+    set NEW.perimeter_m = COALESCE(ST_Length(ST_ExteriorRing(NEW.polygon)), 0);
 
-create definer = rfyl_user@`%` trigger territories_bu_perimeter
+drop trigger if exists territories_bu_perimeter;
+create trigger territories_bu_perimeter
     before update
     on territories
     for each row
-BEGIN
-  SET NEW.perimeter_m = COALESCE(ST_Length(ST_ExteriorRing(NEW.polygon)), 0);
-END;
+    set NEW.perimeter_m = COALESCE(ST_Length(ST_ExteriorRing(NEW.polygon)), 0);
 
