@@ -128,6 +128,8 @@ async function flushRealtimeWal(): Promise<void> {
 
         const events: PersistedRealtimeEvent[] = [];
         const knockouts: PersistedKnockout[] = [];
+        const knockoutVictimsByMap = new Map<string, Set<string>>();
+        const territoryReplaceAllMapIds = new Set<string>();
         const latestSnapshots = new Map<string, PersistedMapSnapshot>();
         const latestTerritorySnapshots = new Map<string, { snapshot: MapSnapshot; updatedAt: Date }>();
 
@@ -155,6 +157,11 @@ async function flushRealtimeWal(): Promise<void> {
                         reason: event.reason,
                         occurredAt: updatedAt,
                     });
+                    const victims = knockoutVictimsByMap.get(record.mapId) ?? new Set<string>();
+                    victims.add(event.userId);
+                    knockoutVictimsByMap.set(record.mapId, victims);
+                } else if (isResetEvent(event)) {
+                    territoryReplaceAllMapIds.add(record.mapId);
                 }
             }
 
@@ -170,7 +177,9 @@ async function flushRealtimeWal(): Promise<void> {
 
         await writers.insertRealtimeEvents(events);
         await writers.upsertMapSnapshots(Array.from(latestSnapshots.values()));
-        await writers.syncMapTerritories(buildMapTerritories(latestTerritorySnapshots));
+        await writers.syncMapTerritories(
+            buildMapTerritories(latestTerritorySnapshots, knockoutVictimsByMap, territoryReplaceAllMapIds)
+        );
         await writers.syncKnockouts(knockouts);
 
         writeCursor(end);
@@ -219,13 +228,17 @@ type SnapshotGeometry = {
 };
 
 type KnockoutEvent = Extract<RealtimeEvent, { type: 'knockout' }>;
+type ResetEvent = Extract<RealtimeEvent, { type: 'reset' }>;
 
 function buildMapTerritories(
-    snapshots: Map<string, { snapshot: MapSnapshot; updatedAt: Date }>
+    snapshots: Map<string, { snapshot: MapSnapshot; updatedAt: Date }>,
+    knockoutVictimsByMap: Map<string, Set<string>>,
+    territoryReplaceAllMapIds: Set<string>
 ): PersistedMapTerritories[] {
     const output: PersistedMapTerritories[] = [];
     for (const [mapId, snapshotRecord] of snapshots.entries()) {
         const territoriesByOwner = new Map<string, PersistedMapTerritories['territories'][number]>();
+        const knockoutVictims = knockoutVictimsByMap.get(mapId);
         const players = Array.isArray(snapshotRecord.snapshot.players) ? snapshotRecord.snapshot.players : [];
         for (const rawPlayer of players as unknown[]) {
             if (!rawPlayer || typeof rawPlayer !== 'object') {
@@ -239,11 +252,13 @@ function buildMapTerritories(
                 ownerUid,
                 territoryGeoJson: toTerritoryGeometryJson((rawPlayer as SnapshotPlayer).territory),
                 areaM2: toNonNegativeNumber((rawPlayer as SnapshotPlayer).territoryAreaSqMeters),
+                clearOnSync: Boolean(knockoutVictims?.has(ownerUid)),
             });
         }
         output.push({
             mapId,
             updatedAt: snapshotRecord.updatedAt,
+            replaceAll: territoryReplaceAllMapIds.has(mapId),
             territories: Array.from(territoriesByOwner.values()),
         });
     }
@@ -252,6 +267,10 @@ function buildMapTerritories(
 
 function isKnockoutEvent(event: RealtimeEvent): event is KnockoutEvent {
     return event.type === 'knockout';
+}
+
+function isResetEvent(event: RealtimeEvent): event is ResetEvent {
+    return event.type === 'reset';
 }
 
 function normalizeOwnerUid(value: unknown): string | null {
