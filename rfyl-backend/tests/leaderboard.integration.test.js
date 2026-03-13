@@ -44,18 +44,26 @@ const seededUserIds = [];
 
 async function insertUser(firebaseUid) {
   const [result] = await pool.execute(
-    "INSERT INTO users (firebase_uid) VALUES (?)",
-    [firebaseUid]
+    "INSERT INTO users (firebase_uid, username) VALUES (?, ?)",
+    [firebaseUid, firebaseUid]
   );
   seededUserIds.push(result.insertId);
   return result.insertId;
 }
 
 async function insertTerritory(ownerId, mapId, area) {
+  const [rows] = await pool.execute(
+    "SELECT firebase_uid FROM users WHERE id = ? LIMIT 1",
+    [ownerId]
+  );
+  if (!rows.length) {
+    throw new Error(`No user found for id ${ownerId}`);
+  }
+
   await pool.execute(
-    `INSERT INTO territories (owner_id, map_id, polygon, area_m2)
+    `INSERT INTO territories (owner_uid, map_id, polygon, area_m2)
      VALUES (?, ?, ST_GeomFromText('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'), ?)`,
-    [ownerId, mapId, area]
+    [rows[0].firebase_uid, mapId, area]
   );
 }
 

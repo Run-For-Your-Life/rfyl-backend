@@ -17,20 +17,24 @@ export const createRegisterRouter = () => {
         throw validationError;
       }
 
-      const decodedToken = await firebaseAuth.verifyIdToken(idToken);
-      const synced = await ensureUserByFirebaseUid(decodedToken.uid);
       const requestedUsername = String(req.body?.username ?? '').trim();
       const requestedEmail = String(req.body?.email ?? '').trim();
+      const decodedToken = await firebaseAuth.verifyIdToken(idToken);
       const displayName = String(decodedToken.name ?? '').trim();
       const tokenEmail = typeof decodedToken.email === 'string' ? decodedToken.email : '';
       const email = tokenEmail || requestedEmail || '';
-      const username =
+      const preferredUsername =
         requestedUsername || displayName || (email ? email.split('@')[0] ?? decodedToken.uid : decodedToken.uid);
+      const synced = await ensureUserByFirebaseUid(
+        decodedToken.uid,
+        preferredUsername,
+        requestedUsername.length > 0
+      );
 
       res.status(synced.created ? 201 : 200).json({
         user: {
           uid: decodedToken.uid,
-          username,
+          username: synced.username,
           email: email || null,
         },
       });

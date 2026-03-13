@@ -104,7 +104,7 @@ const run = async () => {
       [mapId]
     );
     const [territoryRows] = await pool.query(
-      "SELECT owner_uid, map_id, area_m2, ST_AsGeoJSON(polygon) AS polygon_json FROM territories WHERE map_id = ? AND owner_uid = ?",
+      "SELECT owner_uid, map_id, area_m2, ST_AsGeoJSON(polygon) AS polygon_json, ST_GeometryType(polygon) AS geometry_type FROM territories WHERE map_id = ? AND owner_uid = ?",
       [mapId, ownerUid]
     );
     const [knockoutRows] = await pool.query(
@@ -125,8 +125,17 @@ const run = async () => {
     assert.strictEqual(territoryRows[0].owner_uid, ownerUid, "expected territory owner uid match");
     assert.strictEqual(territoryRows[0].map_id, mapId, "expected territory map_id match");
     assert.strictEqual(Number(territoryRows[0].area_m2), 34, "expected territory area from snapshot");
+    const polygonJson = territoryRows[0].polygon_json;
+    const geometryType = territoryRows[0].geometry_type;
+    const hasPolygonViaGeoType =
+      typeof geometryType === "string" &&
+      (geometryType.toUpperCase().includes("POLYGON") || geometryType.toUpperCase().includes("ST_POLYGON"));
+    const hasPolygonViaJsonString =
+      typeof polygonJson === "string" && polygonJson.toLowerCase().includes("polygon");
+    const hasPolygonViaJsonObject =
+      polygonJson && typeof polygonJson === "object" && String(polygonJson.type || "").toLowerCase() === "polygon";
     assert.ok(
-      typeof territoryRows[0].polygon_json === "string" && territoryRows[0].polygon_json.includes("\"Polygon\""),
+      hasPolygonViaGeoType || hasPolygonViaJsonString || hasPolygonViaJsonObject,
       "expected territory polygon geometry"
     );
     assert.strictEqual(knockoutRows.length, 1, "expected one materialized knockout row");

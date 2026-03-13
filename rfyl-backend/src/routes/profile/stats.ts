@@ -56,7 +56,16 @@ export const createProfileStatsRouter = () => {
         [userUid]
       );
       const [[knockoutsRow]] = await pool.query<StatRow[]>(
-        'SELECT COUNT(*) AS total FROM knockouts WHERE attacker_uid = ?',
+        `SELECT COUNT(*) AS total
+         FROM knockouts
+         WHERE attacker_uid = ?
+           AND reason <> 'self-cross'`,
+        [userUid]
+      );
+      const [[timesKnockedOutRow]] = await pool.query<StatRow[]>(
+        `SELECT COUNT(*) AS total
+         FROM knockouts
+         WHERE victim_uid = ?`,
         [userUid]
       );
 
@@ -84,6 +93,7 @@ export const createProfileStatsRouter = () => {
         milesRun,
         territoryCovered: territoryRow?.total ?? 0,
         playersDefeated: knockoutsRow?.total ?? 0,
+        timesKnockedOut: timesKnockedOutRow?.total ?? 0,
         rank: rankRow?.rank_position ?? null,
       });
     } catch (err) {

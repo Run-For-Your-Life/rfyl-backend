@@ -95,11 +95,12 @@ const run = async () => {
     assert.strictEqual(second.created, false, 'expected second ensure call to be idempotent');
 
     const [[row]] = await pool.query(
-      'SELECT firebase_uid FROM users WHERE firebase_uid = ? LIMIT 1',
+      'SELECT firebase_uid, username FROM users WHERE firebase_uid = ? LIMIT 1',
       [firebaseUid]
     );
     assert.ok(row, 'expected synced user row to exist');
     assert.strictEqual(row.firebase_uid, firebaseUid, 'expected DB row UID to match');
+    assert.ok(typeof row.username === 'string' && row.username.length > 0, 'expected username to be persisted');
 
     console.log('Auth integration tests passed (Firebase UID sync verified).');
   } catch (err) {
@@ -136,7 +137,7 @@ const assertUsersSchema = async (pool) => {
         AND TABLE_NAME = 'users'`
   );
   const columns = new Set(rows.map((row) => row.COLUMN_NAME));
-  const missing = ['firebase_uid'].filter((name) => !columns.has(name));
+  const missing = ['firebase_uid', 'username'].filter((name) => !columns.has(name));
   if (missing.length > 0) {
     throw new Error(
       `users table schema is outdated; missing columns: ${missing.join(', ')}. ` +

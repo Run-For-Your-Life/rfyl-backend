@@ -18,15 +18,16 @@ export const createLoginRouter = () => {
       }
 
       const decodedToken = await firebaseAuth.verifyIdToken(idToken);
-      const synced = await ensureUserByFirebaseUid(decodedToken.uid);
       const displayName = String(decodedToken.name ?? '').trim();
       const email = typeof decodedToken.email === 'string' ? decodedToken.email : '';
-      const username = displayName || (email ? email.split('@')[0] ?? decodedToken.uid : decodedToken.uid);
+      const preferredUsername =
+        displayName || (email ? email.split('@')[0] ?? decodedToken.uid : decodedToken.uid);
+      const synced = await ensureUserByFirebaseUid(decodedToken.uid, preferredUsername);
 
       res.status(200).json({
         user: {
           uid: decodedToken.uid,
-          username,
+          username: synced.username,
           email: email || null,
           created: synced.created,
         },
