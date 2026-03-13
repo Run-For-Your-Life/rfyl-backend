@@ -1,3 +1,5 @@
+import { RowDataPacket } from 'mysql2/promise';
+
 import type { RunDistanceSample } from '../routes/maps/handlers/locations.js';
 
 import pool from './dbclient.js';
@@ -6,10 +8,9 @@ const DISTANCE_SOURCE = 'realtime_locations';
 
 export async function persistRunDistanceSample(sample: RunDistanceSample): Promise<void> {
   const userUid = sample.userUid.trim();
-  const username = toSafeUsername(sample.username, userUid);
   const mapId = sample.mapId.trim();
   const distanceMeters = Number(sample.distanceMeters);
-  if (!userUid || !username || !mapId || !Number.isFinite(distanceMeters) || distanceMeters <= 0) {
+  if (!userUid || !mapId || !Number.isFinite(distanceMeters) || distanceMeters <= 0) {
     return;
   }
 
@@ -23,10 +24,16 @@ export async function persistRunDistanceSample(sample: RunDistanceSample): Promi
 
   const connection = await pool.getConnection();
   try {
-    // Create missing user/map rows, then save this run in one transaction
+    //Validate existing user and map row, then save this run in one transaction.
     await connection.beginTransaction();
 
-    await connection.execute('INSERT IGNORE INTO users (username, firebase_uid) VALUES (?, ?)', [username, userUid]);
+    const [user_rows] = await connection.query<(RowDataPacket & { firebase_uid: string })[]>(
+      'SELECT firebase_uid FROM users WHERE firebase_uid = ? LIMIT 1',
+      [userUid]
+    );
+    if (user_rows.length === 0) {
+      throw new Error(`unknown user for run distance sample: ${userUid}`);
+    }
     await connection.execute('INSERT IGNORE INTO map_sessions (id) VALUES (?)', [mapId]);
 
     await connection.execute(
@@ -71,10 +78,4 @@ function normalizeCoordinates(value: number[][]): number[][] {
     output.push([lng, lat]);
   }
   return output;
-}
-
-function toSafeUsername(username: string, fallbackUid: string): string {
-  const candidate = typeof username === 'string' ? username.trim() : '';
-  const normalized = candidate || fallbackUid;
-  return normalized.slice(0, 128);
 }
