@@ -28,6 +28,7 @@ const WAL_CURSOR_PATH = path.resolve(process.cwd(), getEnv('REALTIME_WAL_CURSOR_
 const FLUSH_INTERVAL_MS = getNumberEnv('REALTIME_WAL_FLUSH_MS', 5000) ?? 5000;
 const MAX_BATCHES_PER_FLUSH = getNumberEnv('REALTIME_WAL_MAX_BATCHES', 200) ?? 200;
 const WAL_APPEND_RETRY_DELAY_MS = 25;
+const WAL_COMPACT_MIN_CONSUMED_LINES = getNumberEnv('REALTIME_WAL_COMPACT_MIN_CONSUMED_LINES', 500) ?? 500;
 
 let flushTimer: NodeJS.Timeout | null = null;
 let flushInProgress = false;
@@ -183,6 +184,7 @@ async function flushRealtimeWal(): Promise<void> {
         await writers.syncKnockouts(knockouts);
 
         writeCursor(end);
+        await compactWalIfNeeded();
     } catch (error) {
         console.warn('Realtime WAL flush failed', error);
     } finally {
@@ -339,6 +341,36 @@ function readCursor(): number {
 
 function writeCursor(cursor: number): void {
     fs.writeFileSync(WAL_CURSOR_PATH, String(cursor), 'utf8');
+}
+
+async function compactWalIfNeeded(): Promise<void> {
+    await waitForPendingWalAppends();
+    const cursor = readCursor();
+    if (cursor < WAL_COMPACT_MIN_CONSUMED_LINES) {
+        return;
+    }
+    if (!fs.existsSync(WAL_PATH)) {
+        writeCursor(0);
+        return;
+    }
+
+    const lines = fs
+        .readFileSync(WAL_PATH, 'utf8')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+
+    const consumed = Math.min(cursor, lines.length);
+    if (consumed < WAL_COMPACT_MIN_CONSUMED_LINES) {
+        return;
+    }
+
+    const remaining = lines.slice(consumed);
+    const compacted = remaining.length > 0 ? `${remaining.join('\n')}\n` : '';
+    const tmpPath = `${WAL_PATH}.tmp`;
+    fs.writeFileSync(tmpPath, compacted, 'utf8');
+    fs.renameSync(tmpPath, WAL_PATH);
+    writeCursor(0);
 }
 
 async function appendWalLineWithRetry(line: string): Promise<void> {
