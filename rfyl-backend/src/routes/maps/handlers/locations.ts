@@ -43,12 +43,11 @@ export function createLocationsRouter(geometryOps: GeometryOps): Router {
       }
       const lat = Number((raw as { lat?: number }).lat);
       const lng = Number((raw as { lng?: number }).lng);
-      const usernameInput = toTrimmedOptionalString((raw as { username?: unknown }).username);
       if (Number.isNaN(lat) || Number.isNaN(lng)) {
         continue;
       }
       const userId = authReq.auth.userId;
-      const username = usernameInput ?? authReq.auth.username;
+      const username = authReq.auth.username;
       if (!hasPlayer(mapId, userId)) {
         rejectedNotJoined = true;
         continue;
