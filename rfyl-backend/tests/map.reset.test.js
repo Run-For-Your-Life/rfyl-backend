@@ -42,6 +42,12 @@ const mapsRouter = createMapsRouter({
     }
     return decoded;
   },
+  resolveUsername: async (decoded) => {
+    if (typeof decoded.name === "string" && decoded.name.trim().length > 0) {
+      return decoded.name.trim();
+    }
+    return decoded.uid;
+  },
 });
 
 function startServer() {

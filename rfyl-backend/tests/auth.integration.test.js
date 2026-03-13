@@ -86,7 +86,7 @@ const run = async () => {
     await assertUsersSchema(pool);
     schemaReady = true;
 
-    const first = await ensureUserByFirebaseUid(firebaseUid);
+    const first = await ensureUserByFirebaseUid(firebaseUid, `integration-user-${Date.now()}`);
     assert.strictEqual(first.firebaseUid, firebaseUid, 'expected synced UID to match');
     assert.strictEqual(first.created, true, 'expected first ensure call to create user');
 

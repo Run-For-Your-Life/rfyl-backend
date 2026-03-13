@@ -44,6 +44,13 @@ const poolModule = require("../dist/db/dbclient.js");
 const pool = poolModule.default || poolModule;
 const { appendRealtimeWal, flushRealtimeWalNow } = require("../dist/services/realtimePersistence.js");
 
+const usersHasUsernameColumn = async () => {
+  const [rows] = await pool.query(
+    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'username' LIMIT 1"
+  );
+  return rows.length > 0;
+};
+
 const makeSnapshot = () => ({
   mapId,
   players: [
@@ -92,6 +99,15 @@ const knockoutEvent = {
 
 const run = async () => {
   try {
+    const hasUsername = await usersHasUsernameColumn();
+    if (hasUsername) {
+      await pool.execute("INSERT INTO users (firebase_uid, username) VALUES (?, ?)", [ownerUid, ownerUid]);
+      await pool.execute("INSERT INTO users (firebase_uid, username) VALUES (?, ?)", [attackerUid, attackerUid]);
+    } else {
+      await pool.execute("INSERT INTO users (firebase_uid) VALUES (?)", [ownerUid]);
+      await pool.execute("INSERT INTO users (firebase_uid) VALUES (?)", [attackerUid]);
+    }
+
     appendRealtimeWal(mapId, [stateEvent, knockoutEvent], makeSnapshot());
     await flushRealtimeWalNow();
 
@@ -161,6 +177,7 @@ const run = async () => {
       await pool.execute("DELETE FROM realtime_map_snapshots WHERE map_id = ?", [mapId]);
       await pool.execute("DELETE FROM map_sessions WHERE id = ?", [mapId]);
       await pool.execute("DELETE FROM users WHERE firebase_uid = ?", [ownerUid]);
+      await pool.execute("DELETE FROM users WHERE firebase_uid = ?", [attackerUid]);
       if (typeof pool.end === "function") {
         await pool.end();
       }
