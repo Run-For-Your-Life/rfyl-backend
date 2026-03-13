@@ -9,17 +9,8 @@ From `rfyl-backend/`:
   `npm run db:local:up`
 - Stop local MySQL:
   `npm run db:local:down`
-- Reset local MySQL volume and recreate schema from scratch:
-  `npm run db:local:reset`
 - Start backend with local env profile:
   `npm run dev:local`
-
-If you hit local `Unknown column ...` errors after pulling backend changes, run:
-
-```bash
-npm run db:local:reset
-npm run dev:local
-```
 
 Local profile reads `../.env.local`
 Cloud profile reads `../.env`.
