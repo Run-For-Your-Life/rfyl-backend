@@ -135,6 +135,10 @@ export function isMapAtCapacity(mapId: string): boolean {
 }
 
 export function joinPlayer(mapId: string, userId: string, username?: string): RealtimeEvent[] {
+  const normalizedUsername = typeof username === 'string' ? username.trim() : '';
+  if (normalizedUsername.length === 0) {
+    return [];
+  }
   const state = getOrCreateMapState(mapId);
   const existing = state.players.get(userId);
   if (existing) {
@@ -145,8 +149,8 @@ export function joinPlayer(mapId: string, userId: string, username?: string): Re
     ) {
       existing.colornum = selectColor(state);
     }
-    if (username && username !== existing.username) {
-      existing.username = username;
+    if (normalizedUsername !== existing.username) {
+      existing.username = normalizedUsername;
       return [buildStateEvent(mapId, existing)];
     }
     return [];
@@ -157,7 +161,7 @@ export function joinPlayer(mapId: string, userId: string, username?: string): Re
 
   const player: PlayerState = {
     userId,
-    username: username ?? userId,
+    username: normalizedUsername,
     colornum: selectColor(state),
     territory: null,
     path: [],
@@ -326,12 +330,16 @@ function getOrCreateMapState(mapId: string): MapState {
 }
 
 function getOrCreatePlayer(state: MapState, userId: string, point: GeoPoint, username?: string): PlayerState | null {
+  const normalizedUsername = typeof username === 'string' ? username.trim() : '';
   const existing = state.players.get(userId);
   if (existing) {
-    if (username && username !== existing.username) {
-      existing.username = username;
+    if (normalizedUsername.length > 0 && normalizedUsername !== existing.username) {
+      existing.username = normalizedUsername;
     }
     return existing;
+  }
+  if (normalizedUsername.length === 0) {
+    return null;
   }
   if (state.players.size >= MAX_PLAYERS_PER_MAP) {
     return null;
@@ -339,7 +347,7 @@ function getOrCreatePlayer(state: MapState, userId: string, point: GeoPoint, use
   const territory = createInitialTerritory(userId, point);
   const player: PlayerState = {
     userId,
-    username: username ?? userId,
+    username: normalizedUsername,
     colornum: selectColor(state),
     territory,
     path: [],
