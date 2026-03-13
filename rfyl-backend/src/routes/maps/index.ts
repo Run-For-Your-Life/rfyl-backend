@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 
 import { createGeometryOps } from '../../services/realtimeOps';
-import { findUserByFirebaseUid } from '../../services/authService.js';
+import { getUsernameByFirebaseUid } from '../../services/authIdentityCache.js';
 import {
   defaultVerifyIdToken,
   extractIdToken,
@@ -33,14 +33,14 @@ export function createMapsRouter(options: MapsRouterOptions = {}) {
         return;
       }
       const decoded = await verifyIdToken(idToken);
-      const synced = await findUserByFirebaseUid(decoded.uid);
-      if (!synced) {
+      const username = await getUsernameByFirebaseUid(decoded.uid);
+      if (!username) {
         res.status(403).json({ error: 'user_not_registered' });
         return;
       }
       (req as AuthenticatedRequest).auth = {
         userId: decoded.uid,
-        username: synced.username,
+        username,
       };
       next();
     } catch {
