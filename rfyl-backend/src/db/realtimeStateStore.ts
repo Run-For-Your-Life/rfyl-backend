@@ -146,7 +146,13 @@ export async function syncMapTerritories(snapshots: PersistedMapTerritories[]): 
         const existing = new Set(rows.map((row) => row.firebase_uid));
         const missing = ownerUids.filter((uid) => !existing.has(uid));
         if (missing.length > 0) {
-            throw new Error(`unknown users in territory sync: ${missing.join(', ')}`);
+            //Don't fail the whole flush for test/mock identities; skip unknown owners.
+            console.warn(`Realtime territory sync skipping unknown users: ${missing.join(', ')}`);
+            for (const snapshot of normalized) {
+                snapshot.territories = snapshot.territories.filter((territory) =>
+                    existing.has(territory.ownerUid)
+                );
+            }
         }
     }
 
