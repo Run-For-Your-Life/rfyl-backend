@@ -136,10 +136,14 @@ export async function syncMapTerritories(snapshots: PersistedMapTerritories[]): 
         )
     );
     if (ownerUids.length > 0) {
-        const userPlaceholders = ownerUids.map(() => '(?)').join(', ');
+        const userPlaceholders = ownerUids.map(() => '(?, ?)').join(', ');
+        const userValues: string[] = [];
+        for (const ownerUid of ownerUids) {
+            userValues.push(ownerUid, ownerUid);
+        }
         await pool.query(
-            `INSERT IGNORE INTO users (firebase_uid) VALUES ${userPlaceholders}`,
-            ownerUids
+            `INSERT IGNORE INTO users (firebase_uid, username) VALUES ${userPlaceholders}`,
+            userValues
         );
     }
 

@@ -44,8 +44,8 @@ const seededUserIds = [];
 
 async function insertUser(firebaseUid) {
   const [result] = await pool.execute(
-    "INSERT INTO users (firebase_uid) VALUES (?)",
-    [firebaseUid]
+    "INSERT INTO users (firebase_uid, username) VALUES (?, ?)",
+    [firebaseUid, firebaseUid]
   );
   seededUserIds.push(result.insertId);
   return result.insertId;
