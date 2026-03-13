@@ -19,6 +19,7 @@ type DistancePoint = {
 
 export type RunDistanceSample = {
   userUid: string;
+  username: string;
   mapId: string;
   startedAtMs: number;
   endedAtMs: number;
@@ -139,6 +140,7 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
     if (distanceMeters > 0 && startedAtMs !== null && endedAtMs !== null) {
       const sample: RunDistanceSample = {
         userUid: userId,
+        username: authReq.auth.username,
         mapId,
         startedAtMs,
         endedAtMs,

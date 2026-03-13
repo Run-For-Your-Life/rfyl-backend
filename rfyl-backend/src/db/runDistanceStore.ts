@@ -1,20 +1,15 @@
-import { RowDataPacket } from 'mysql2/promise';
-
 import type { RunDistanceSample } from '../routes/maps/handlers/locations.js';
 
 import pool from './dbclient.js';
-
-type UserIdRow = RowDataPacket & {
-  id?: number | null;
-};
 
 const DISTANCE_SOURCE = 'realtime_locations';
 
 export async function persistRunDistanceSample(sample: RunDistanceSample): Promise<void> {
   const userUid = sample.userUid.trim();
+  const username = toSafeUsername(sample.username, userUid);
   const mapId = sample.mapId.trim();
   const distanceMeters = Number(sample.distanceMeters);
-  if (!userUid || !mapId || !Number.isFinite(distanceMeters) || distanceMeters <= 0) {
+  if (!userUid || !username || !mapId || !Number.isFinite(distanceMeters) || distanceMeters <= 0) {
     return;
   }
 
@@ -31,23 +26,14 @@ export async function persistRunDistanceSample(sample: RunDistanceSample): Promi
     // Create missing user/map rows, then save this run in one transaction
     await connection.beginTransaction();
 
-    await connection.execute('INSERT IGNORE INTO users (firebase_uid) VALUES (?)', [userUid]);
+    await connection.execute('INSERT IGNORE INTO users (username, firebase_uid) VALUES (?, ?)', [username, userUid]);
     await connection.execute('INSERT IGNORE INTO map_sessions (id) VALUES (?)', [mapId]);
-
-    const [rows] = await connection.query<UserIdRow[]>(
-      'SELECT id FROM users WHERE firebase_uid = ? LIMIT 1',
-      [userUid]
-    );
-    const userId = Number(rows[0]?.id);
-    if (!Number.isFinite(userId)) {
-      throw new Error('Unable to resolve user id for run persistence');
-    }
 
     await connection.execute(
       `INSERT INTO runs
-       (user_id, user_uid, map_id, started_at, ended_at, distance_m, route_geojson, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, userUid, mapId, startedAt, normalizedEndedAt, distanceMeters, routeGeoJson, DISTANCE_SOURCE]
+       (user_uid, map_id, started_at, ended_at, distance_m, route_geojson, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userUid, mapId, startedAt, normalizedEndedAt, distanceMeters, routeGeoJson, DISTANCE_SOURCE]
     );
 
     await connection.commit();
@@ -85,4 +71,10 @@ function normalizeCoordinates(value: number[][]): number[][] {
     output.push([lng, lat]);
   }
   return output;
+}
+
+function toSafeUsername(username: string, fallbackUid: string): string {
+  const candidate = typeof username === 'string' ? username.trim() : '';
+  const normalized = candidate || fallbackUid;
+  return normalized.slice(0, 128);
 }
