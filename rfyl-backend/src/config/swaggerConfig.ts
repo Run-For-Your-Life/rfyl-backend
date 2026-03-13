@@ -120,6 +120,7 @@ const options = {
                       "milesRun": { type: "integer" },
                       "territoryCovered": { type: "integer" },
                       "playersDefeated": { type: "integer" },
+                      "timesKnockedOut": { type: "integer" },
                       "rank": { type: "integer" }
                     },
                   },
