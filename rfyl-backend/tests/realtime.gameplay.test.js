@@ -416,7 +416,8 @@ try {
   // TEST: Live Case A Path-Cross Knockout
   // Description: Vulnerable victim path-cross results in knockout, with no territory capture by attacker during crossing.
   runCase("Live case A: vulnerable path-cross knockout with no capture", () => {
-    // Use a dedicated map so this scenario is isolated from other cases.
+    // Use a dedicated map so this scenario is isolated from other cases
+    // and cannot be influenced by earlier test state.
     const mapId = "live-case-a-path-cross-no-capture";
     const ghostId = "ghost-live-a";
     const playerId = "player-live-a";
@@ -425,6 +426,7 @@ try {
 
     // Phase 1: victim setup.
     // Spawn ghost territory, then force a long outside path so victim becomes ghost_vulnerable.
+    // This mirrors the real game path where a ghost leaves safe territory before being hittable.
     sendGhost(0, 0);
     const ghost = getPlayer(mapId, ghostId);
     const ghostBounds = getBounds(ghost.territory);
@@ -436,19 +438,23 @@ try {
       ghostBeforeCross.path.geometry.coordinates.length >= 2,
       "expected at least one outside segment for victim"
     );
+    // Keep victim path endpoints so attacker can intentionally cross that exact segment.
     const [gStart, gEnd] = ghostBeforeCross.path.geometry.coordinates;
     const [gStartLng, gStartLat] = gStart;
     const [gEndLng, gEndLat] = gEnd;
 
     // Phase 2: attacker setup.
     // Attacker must be in player mode (not ghost) for path-cross knockouts.
+    // `makePlayer` seeds territory and confirms promotion out of ghost mode.
     makePlayer(mapId, playerId, sendPlayer, 0.02, 0.02);
     const playerBeforeCross = getPlayer(mapId, playerId);
     const playerBounds = getBounds(playerBeforeCross.territory);
+    // Record area before crossing to prove no accidental territory capture is awarded.
     const attackerAreaBeforeCross = playerBeforeCross.territoryAreaSqMeters;
 
     // Phase 3: crossing action.
-    // Start attacker outside, then force its segment through victim path endpoints.
+    // Start attacker just outside territory, then force its segment through victim path endpoints.
+    // This constructs the path-cross condition directly and deterministically.
     const start = sendPlayer(
       playerBounds.minLat + playerBounds.dLat * 0.1,
       playerBounds.centerLng
@@ -462,7 +468,9 @@ try {
     const knockedGhost = crossingEvents.find(
       (event) => event.type === "knockout" && event.userId === ghostId
     );
+    // Victim must be the knockout target.
     assert.ok(knockedGhost, "expected vulnerable victim to be knocked on path-cross");
+    // Reason is important for regression: this should be path-cross logic, not a generic knockout.
     assert.strictEqual(knockedGhost.reason, "path-cross", "expected path-cross knockout reason");
 
     // This is the key regression guard:
@@ -487,6 +495,8 @@ try {
     // Victim state should be reset exactly as knockout rules require.
     const ghostAfterKnock = getPlayer(mapId, ghostId);
     assertKnockoutResetState(ghostAfterKnock);
+
+    // Always clean up to avoid map state leaking into later scenarios.
     clearMapState(mapId);
   });
   // TEST END
