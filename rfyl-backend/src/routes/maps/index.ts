@@ -1,6 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 
+import { persistRunDistanceSample } from '../../db/runDistanceStore.js';
 import { createGeometryOps } from '../../services/realtimeOps';
+
 import {
   defaultVerifyIdToken,
   deriveUsername,
@@ -9,7 +11,7 @@ import {
   type VerifyIdTokenFn,
 } from './auth';
 import { createJoinRouter } from './handlers/join';
-import { createLocationsRouter } from './handlers/locations';
+import { createLocationsRouter, type RecordRunDistanceFn } from './handlers/locations';
 import { createResetRouter } from './handlers/reset';
 import { createRespawnRouter } from './handlers/respawn';
 import { createStateRouter } from './handlers/state';
@@ -18,12 +20,14 @@ import { createStreamRouter } from './handlers/stream';
 export type { VerifyIdTokenFn };
 type MapsRouterOptions = {
   verifyIdToken?: VerifyIdTokenFn;
+  recordRunDistance?: RecordRunDistanceFn;
 };
 
 export function createMapsRouter(options: MapsRouterOptions = {}) {
   const router = Router();
   const geometryOps = createGeometryOps();
   const verifyIdToken = options.verifyIdToken ?? defaultVerifyIdToken;
+  const recordRunDistance = options.recordRunDistance;
 
   router.use(async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -45,7 +49,12 @@ export function createMapsRouter(options: MapsRouterOptions = {}) {
   });
 
   router.use(createJoinRouter());
-  router.use(createLocationsRouter(geometryOps));
+  router.use(
+    createLocationsRouter(
+      geometryOps,
+      recordRunDistance ? { recordRunDistance } : {}
+    )
+  );
   router.use(createStreamRouter());
   router.use(createStateRouter());
   router.use(createRespawnRouter());
@@ -54,5 +63,6 @@ export function createMapsRouter(options: MapsRouterOptions = {}) {
   return router;
 }
 
-const router = createMapsRouter();
+// Distance is saved to MySQL
+const router = createMapsRouter({ recordRunDistance: persistRunDistanceSample });
 export default router;
