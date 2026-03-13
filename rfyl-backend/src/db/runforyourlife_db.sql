@@ -42,6 +42,7 @@ create table users
 (
     id           bigint unsigned auto_increment
         primary key,
+    username     varchar(128)                        not null,
     firebase_uid varchar(256)                        not null,
     created_at   timestamp default CURRENT_TIMESTAMP not null,
     updated_at   timestamp default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP,
@@ -170,13 +171,16 @@ create table runs
     route_geojson longtext collate utf8mb4_bin          not null,
     source        varchar(32) default 'mobile'          null,
     created_at    timestamp   default CURRENT_TIMESTAMP not null,
-    user_uid      varchar(128)                          not null,
+    user_uid      varchar(256)                          not null,
     constraint runs_map_fk
         foreign key (map_id) references map_sessions (id)
             on update cascade on delete set null,
     constraint runs_match_fk
         foreign key (match_id) references matches (id)
             on update cascade on delete set null,
+    constraint runs_user_uid_fk
+        foreign key (user_uid) references users (firebase_uid)
+            on update cascade on delete cascade,
     constraint runs_distance_chk
         check (`distance_m` >= 0),
     constraint runs_route_json_chk
@@ -199,7 +203,7 @@ create table territories
 (
     id          bigint unsigned auto_increment
         primary key,
-    owner_uid   varchar(128)                       not null,
+    owner_uid   varchar(256)                       not null,
     map_id      varchar(64)                        null,
     match_id    bigint unsigned                    null,
     polygon     geometry                           not null,
