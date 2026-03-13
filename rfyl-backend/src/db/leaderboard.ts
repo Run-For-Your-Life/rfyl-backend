@@ -39,7 +39,7 @@ async function queryLeaderboard(
         ORDER BY SUM(t.area_m2) DESC, u.id ASC
       ) AS rank_position
     FROM territories t
-    JOIN users u ON u.id = t.owner_id
+    JOIN users u ON u.firebase_uid = t.owner_uid
     WHERE ${whereSql}
     GROUP BY u.id, u.firebase_uid
     ORDER BY total_area_m2 DESC, user_id ASC
@@ -65,7 +65,7 @@ async function queryUserRank(
           ORDER BY SUM(t.area_m2) DESC, u.id ASC
         ) AS rank_position
       FROM territories t
-      JOIN users u ON u.id = t.owner_id
+      JOIN users u ON u.firebase_uid = t.owner_uid
       WHERE ${whereSql}
       GROUP BY u.id, u.firebase_uid
     )

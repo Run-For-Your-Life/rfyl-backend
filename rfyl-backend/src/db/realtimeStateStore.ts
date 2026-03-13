@@ -20,11 +20,13 @@ export type PersistedMapTerritory = {
     ownerUid: string;
     territoryGeoJson: string | null;
     areaM2: number;
+    clearOnSync: boolean;
 };
 
 export type PersistedMapTerritories = {
     mapId: string;
     updatedAt: Date;
+    replaceAll: boolean;
     territories: PersistedMapTerritory[];
 };
 
@@ -102,11 +104,13 @@ export async function syncMapTerritories(snapshots: PersistedMapTerritories[]): 
                 ownerUid,
                 territoryGeoJson: territory.territoryGeoJson,
                 areaM2: Number.isFinite(territory.areaM2) && territory.areaM2 >= 0 ? territory.areaM2 : 0,
+                clearOnSync: territory.clearOnSync,
             });
         }
         latestByMap.set(mapId, {
             mapId,
             updatedAt: snapshot.updatedAt,
+            replaceAll: snapshot.replaceAll,
             territories: Array.from(territoriesByOwner.values()),
         });
     }
@@ -144,18 +148,24 @@ export async function syncMapTerritories(snapshots: PersistedMapTerritories[]): 
         await connection.beginTransaction();
 
         for (const snapshot of normalized) {
-            const ownerList = snapshot.territories.map((territory) => territory.ownerUid);
-            if (ownerList.length === 0) {
-                await connection.execute('DELETE FROM territories WHERE map_id = ?', [snapshot.mapId]);
-            } else {
-                const ownerPlaceholders = ownerList.map(() => '?').join(', ');
-                await connection.execute(
-                    `DELETE FROM territories WHERE map_id = ? AND owner_uid NOT IN (${ownerPlaceholders})`,
-                    [snapshot.mapId, ...ownerList]
-                );
+            if (snapshot.replaceAll) {
+                const ownerList = snapshot.territories.map((territory) => territory.ownerUid);
+                if (ownerList.length === 0) {
+                    await connection.execute('DELETE FROM territories WHERE map_id = ?', [snapshot.mapId]);
+                } else {
+                    const ownerPlaceholders = ownerList.map(() => '?').join(', ');
+                    await connection.execute(
+                        `DELETE FROM territories WHERE map_id = ? AND owner_uid NOT IN (${ownerPlaceholders})`,
+                        [snapshot.mapId, ...ownerList]
+                    );
+                }
             }
 
             for (const territory of snapshot.territories) {
+                if (!territory.territoryGeoJson && !territory.clearOnSync) {
+                    continue;
+                }
+
                 await connection.execute(
                     'DELETE FROM territories WHERE map_id = ? AND owner_uid = ?',
                     [snapshot.mapId, territory.ownerUid]
