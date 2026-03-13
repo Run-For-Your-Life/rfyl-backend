@@ -10,6 +10,7 @@
     "start": "node dist/index.js",
     "db:local:up": "docker compose -f docker-compose.local-db.yml up -d",
     "db:local:down": "docker compose -f docker-compose.local-db.yml down",
+    "db:local:reset": "docker compose -f docker-compose.local-db.yml down -v && docker compose -f docker-compose.local-db.yml up -d",
     "db:local:logs": "docker compose -f docker-compose.local-db.yml logs -f mysql",
     "test:integration:db": "sh -c 'npm run db:local:up; status=0; node tests/auth.integration.test.js || status=$?; node tests/realtime.persistence.integration.test.js || status=$?; node tests/leaderboard.integration.test.js || status=$?; npm run db:local:down; exit $status'",
     "test:local": "ENV_FILE=../.env.local npm test && ENV_FILE=../.env.local npm run test:integration:db",
