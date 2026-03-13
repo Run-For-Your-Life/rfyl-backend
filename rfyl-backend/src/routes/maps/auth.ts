@@ -40,14 +40,6 @@ export function matchesPassword(providedPassword: string, expectedPassword: stri
   return timingSafeEqual(provided, expected);
 }
 
-export function deriveUsername(decoded: VerifiedIdentityToken): string {
-  const trimmedName = toTrimmedOptionalString(decoded.name);
-  if (trimmedName) {
-    return trimmedName;
-  }
-  return decoded.uid;
-}
-
 export function extractIdToken(req: Request): string | undefined {
   const bearer = parseBearerToken(req);
   if (bearer) {
