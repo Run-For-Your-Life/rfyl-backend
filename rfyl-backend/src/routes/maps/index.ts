@@ -5,6 +5,7 @@ import { getUsernameByFirebaseUid } from '../../services/authIdentityCache.js';
 import {
   defaultVerifyIdToken,
   extractIdToken,
+  type VerifiedIdentityToken,
   type AuthenticatedRequest,
   type VerifyIdTokenFn,
 } from './auth';
@@ -16,14 +17,19 @@ import { createStateRouter } from './handlers/state';
 import { createStreamRouter } from './handlers/stream';
 
 export type { VerifyIdTokenFn };
+export type ResolveUsernameFn = (decoded: VerifiedIdentityToken) => Promise<string | null>;
 type MapsRouterOptions = {
   verifyIdToken?: VerifyIdTokenFn;
+  resolveUsername?: ResolveUsernameFn;
 };
 
 export function createMapsRouter(options: MapsRouterOptions = {}) {
   const router = Router();
   const geometryOps = createGeometryOps();
   const verifyIdToken = options.verifyIdToken ?? defaultVerifyIdToken;
+  const resolveUsername = options.resolveUsername ?? (async (decoded: VerifiedIdentityToken) =>
+    getUsernameByFirebaseUid(decoded.uid)
+  );
 
   router.use(async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -33,7 +39,7 @@ export function createMapsRouter(options: MapsRouterOptions = {}) {
         return;
       }
       const decoded = await verifyIdToken(idToken);
-      const username = await getUsernameByFirebaseUid(decoded.uid);
+      const username = await resolveUsername(decoded);
       if (!username) {
         res.status(403).json({ error: 'user_not_registered' });
         return;
