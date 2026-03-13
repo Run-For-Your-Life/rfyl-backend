@@ -108,9 +108,15 @@ const makeGhostPath = (mapId, userId, bounds, send, distanceDeg) => {
   send(bounds.minLat - distanceDeg, bounds.centerLng);
 };
 
+const runCase = (name, fn) => {
+  console.log(`[case] ${name}`);
+  fn();
+};
+
 try {
-  // Ghost becomes vulnerable after path length exceeds 400m.
-  {
+  // TEST: Ghost Vulnerable Threshold
+  // Description: Ghost becomes vulnerable and eligible after long enough outside path.
+  runCase("Ghost becomes vulnerable after path length exceeds 400m", () => {
     const mapId = "ghost-vulnerable";
     const userId = "ghost-1";
     const send = createSender(mapId, userId);
@@ -122,10 +128,12 @@ try {
     assert.strictEqual(updated.ghostState, "ghost_vulnerable");
     assert.strictEqual(updated.ghostEligible, true, "expected vulnerable ghosts to be eligible");
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Joined + respawned ghost should still become vulnerable after long enough outside path.
-  {
+  // TEST: Joined + Respawned Ghost Vulnerability
+  // Description: Join/respawn flow still allows ghost to become vulnerable after long outside movement.
+  runCase("Joined + respawned ghost becomes vulnerable after long outside path", () => {
     const mapId = "ghost-vulnerable-respawn-flow";
     const userId = "ghost-respawn-vuln";
     const username = expectedUsername(userId);
@@ -150,10 +158,12 @@ try {
     assert.strictEqual(updated.ghostState, "ghost_vulnerable");
     assert.strictEqual(updated.ghostEligible, true);
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Respawn does nothing when ghost is not eligible.
-  {
+  // TEST: Respawn Ineligible No-Op
+  // Description: Respawn should do nothing for invulnerable, ineligible ghosts.
+  runCase("Respawn does nothing when ghost is not eligible", () => {
     const mapId = "ghost-respawn-ineligible";
     const userId = "ghost-0";
     const send = createSender(mapId, userId);
@@ -170,10 +180,12 @@ try {
     assert.strictEqual(after.ghostEligible, false);
     assert.strictEqual(after.ghostState, "ghost_invulnerable");
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Moving in a closed loop while inside should not start a capture.
-  {
+  // TEST: Inside Loop No Capture
+  // Description: A loop that never leaves territory must not start a capture event.
+  runCase("Closed loop while inside should not start capture", () => {
     const mapId = "inside-loop-no-capture";
     const userId = "player-inside-loop";
     const send = createSender(mapId, userId);
@@ -196,10 +208,12 @@ try {
     assert.strictEqual(player.isOutside, false);
     assert.strictEqual(player.path, null);
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Ghost capture immediately transitions to player (no additional respawn step).
-  {
+  // TEST: Ghost Capture Promotion
+  // Description: Successful capture transitions ghost to player, so respawn is no longer applicable.
+  runCase("Ghost capture transitions to player (no additional respawn step)", () => {
     const mapId = "ghost-respawn";
     const userId = "ghost-2";
     const send = createSender(mapId, userId);
@@ -213,10 +227,12 @@ try {
     const respawnEvents = respawnPlayer(mapId, userId);
     assert.strictEqual(respawnEvents.length, 0, "expected respawn to no-op once player is active");
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Invulnerable ghosts still knock themselves out on self-cross.
-  {
+  // TEST: Invulnerable Ghost Self-Cross Knockout
+  // Description: Even invulnerable ghosts should knockout on their own path self-cross.
+  runCase("Invulnerable ghosts self-knockout on self-cross", () => {
     const mapId = "self-cross-invulnerable-ghost";
     const userId = "ghost-self";
     const send = createSender(mapId, userId);
@@ -239,10 +255,12 @@ try {
     const afterMove = getPlayer(mapId, userId);
     assert.strictEqual(afterMove.territory, null, "expected no auto-respawn territory after ghost death");
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Self-cross triggers knockout (player).
-  {
+  // TEST: Player Self-Cross Knockout
+  // Description: A player crossing their own active path should be knocked out and reset.
+  runCase("Player self-cross triggers knockout", () => {
     const mapId = "self-cross";
     const userId = "player-self";
     const send = createSender(mapId, userId);
@@ -268,10 +286,12 @@ try {
     const afterMove = getPlayer(mapId, userId);
     assert.strictEqual(afterMove.territory, null, "expected no auto-respawn territory on next location");
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Tiny jitter while idling outside should be ignored (no new segment, no self-knock).
-  {
+  // TEST: Idle Forgiveness
+  // Description: Tiny jitter while outside should not create path segments or trigger knockout.
+  runCase("Idle jitter outside is ignored (no segment, no knockout)", () => {
     const mapId = "idle-forgiveness";
     const userId = "player-idle";
     const send = createSender(mapId, userId);
@@ -302,10 +322,12 @@ try {
       "expected jitter point to be ignored for idle forgiveness"
     );
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Player cannot knock an invulnerable ghost.
-  {
+  // TEST: Player vs Invulnerable Ghost
+  // Description: Player path-cross must not knockout an invulnerable ghost.
+  runCase("Player cannot knock an invulnerable ghost", () => {
     const mapId = "knock-invulnerable";
     const ghostId = "ghost-3";
     const playerId = "player-1";
@@ -337,10 +359,12 @@ try {
     );
     assert.ok(!knockedGhost, "ghost should remain invulnerable to knockouts");
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Player can knock a vulnerable ghost.
-  {
+  // TEST: Player vs Vulnerable Ghost
+  // Description: Player path-cross should knockout a vulnerable ghost and reset victim state.
+  runCase("Player can knock a vulnerable ghost", () => {
     const mapId = "knock-vulnerable";
     const ghostId = "ghost-4";
     const playerId = "player-2";
@@ -376,10 +400,110 @@ try {
     const ghostAfterKnock = getPlayer(mapId, ghostId);
     assertKnockoutResetState(ghostAfterKnock);
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Boundary selection chooses smaller-area capture.
-  {
+  // NOTE FOR CONNOR:
+  // Live Case A parity for the knockout rule:
+  // vulnerable outside-path victim is knocked by path-cross,
+  // and the crossing move itself does not grant capture.
+  // Validates:
+  // 1) Victim is ghost_vulnerable with active outside path
+  // 2) Attacker is in player state
+  // 3) Crossing victim path emits knockout with reason "path-cross"
+  // 4) Crossing sequence emits no attacker territory event
+  // 5) Victim state is fully reset after knockout
+  // TEST: Live Case A Path-Cross Knockout
+  // Description: Vulnerable victim path-cross results in knockout, with no territory capture by attacker during crossing.
+  runCase("Live case A: vulnerable path-cross knockout with no capture", () => {
+    // Use a dedicated map so this scenario is isolated from other cases
+    // and cannot be influenced by earlier test state.
+    const mapId = "live-case-a-path-cross-no-capture";
+    const ghostId = "ghost-live-a";
+    const playerId = "player-live-a";
+    const sendGhost = createSender(mapId, ghostId);
+    const sendPlayer = createSender(mapId, playerId);
+
+    // Phase 1: victim setup.
+    // Spawn ghost territory, then force a long outside path so victim becomes ghost_vulnerable.
+    // This mirrors the real game path where a ghost leaves safe territory before being hittable.
+    sendGhost(0, 0);
+    const ghost = getPlayer(mapId, ghostId);
+    const ghostBounds = getBounds(ghost.territory);
+    makeGhostPath(mapId, ghostId, ghostBounds, sendGhost, 0.01);
+    const ghostBeforeCross = getPlayer(mapId, ghostId);
+    assert.strictEqual(ghostBeforeCross.ghostState, "ghost_vulnerable");
+    assert.ok(ghostBeforeCross.path, "expected victim path while outside");
+    assert.ok(
+      ghostBeforeCross.path.geometry.coordinates.length >= 2,
+      "expected at least one outside segment for victim"
+    );
+    // Keep victim path endpoints so attacker can intentionally cross that exact segment.
+    const [gStart, gEnd] = ghostBeforeCross.path.geometry.coordinates;
+    const [gStartLng, gStartLat] = gStart;
+    const [gEndLng, gEndLat] = gEnd;
+
+    // Phase 2: attacker setup.
+    // Attacker must be in player mode (not ghost) for path-cross knockouts.
+    // `makePlayer` seeds territory and confirms promotion out of ghost mode.
+    makePlayer(mapId, playerId, sendPlayer, 0.02, 0.02);
+    const playerBeforeCross = getPlayer(mapId, playerId);
+    const playerBounds = getBounds(playerBeforeCross.territory);
+    // Record area before crossing to prove no accidental territory capture is awarded.
+    const attackerAreaBeforeCross = playerBeforeCross.territoryAreaSqMeters;
+
+    // Phase 3: crossing action.
+    // Start attacker just outside territory, then force its segment through victim path endpoints.
+    // This constructs the path-cross condition directly and deterministically.
+    const start = sendPlayer(
+      playerBounds.minLat + playerBounds.dLat * 0.1,
+      playerBounds.centerLng
+    );
+    const mid = sendPlayer(gStartLat, gStartLng);
+    const end = sendPlayer(gEndLat, gEndLng);
+    // Collect all events emitted by this crossing sequence.
+    const crossingEvents = [...start, ...mid, ...end];
+
+    // Phase 4: verify knockout reason and non-capture behavior.
+    const knockedGhost = crossingEvents.find(
+      (event) => event.type === "knockout" && event.userId === ghostId
+    );
+    // Victim must be the knockout target.
+    assert.ok(knockedGhost, "expected vulnerable victim to be knocked on path-cross");
+    // Reason is important for regression: this should be path-cross logic, not a generic knockout.
+    assert.strictEqual(knockedGhost.reason, "path-cross", "expected path-cross knockout reason");
+
+    // This is the key regression guard:
+    // crossing another player's path should not also produce territory claim in the same move.
+    const captureByAttackerDuringCross = crossingEvents.find(
+      (event) => event.type === "territory" && event.userId === playerId
+    );
+
+    assert.ok(
+      !captureByAttackerDuringCross,
+      "expected no attacker territory capture event during crossing knockout"
+    );
+
+    const playerAfterCross = getPlayer(mapId, playerId);
+    // Attacker area should not change from crossing-only knockout behavior.
+    assert.strictEqual(
+      playerAfterCross.territoryAreaSqMeters,
+      attackerAreaBeforeCross,
+      "expected attacker territory area unchanged by crossing-only knockout"
+    );
+
+    // Victim state should be reset exactly as knockout rules require.
+    const ghostAfterKnock = getPlayer(mapId, ghostId);
+    assertKnockoutResetState(ghostAfterKnock);
+
+    // Always clean up to avoid map state leaking into later scenarios.
+    clearMapState(mapId);
+  });
+  // TEST END
+
+  // TEST: Boundary Selection
+  // Description: Capture closure should choose valid smaller-area boundary and increase territory.
+  runCase("Boundary selection prefers smaller-area capture", () => {
     const mapId = "boundary-selection";
     const userId = "player-boundary";
     const send = createSender(mapId, userId);
@@ -398,10 +522,12 @@ try {
     const delta = after.territoryAreaSqMeters - initialArea;
     assert.ok(delta > 0, "expected capture to increase area");
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Capturing territory subtracts from another player.
-  {
+  // TEST: Player Territory Subtraction
+  // Description: One player's capture should subtract area from another player's territory.
+  runCase("Capture subtracts territory from another player", () => {
     const mapId = "capture-subtract-player";
     const captorId = "player-4";
     const defenderId = "player-5";
@@ -458,10 +584,12 @@ try {
       "expected defender territory to decrease after capture"
     );
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // MultiPolygon result when a capture splits a territory.
-  {
+  // TEST: Split Geometry Validity
+  // Description: Split capture outcomes should preserve valid Polygon or MultiPolygon geometry.
+  runCase("Split capture keeps defender territory geometry valid", () => {
     const mapId = "multipolygon-split";
     const captorId = "player-6";
     const defenderId = "player-7";
@@ -487,10 +615,12 @@ try {
       "expected defender territory geometry to remain valid after split attempt"
     );
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
-  // Capturing territory subtracts from vulnerable ghosts.
-  {
+  // TEST: Vulnerable Ghost Territory Subtraction
+  // Description: Player capture should subtract area from vulnerable ghost territory.
+  runCase("Capture subtracts territory from vulnerable ghosts", () => {
     const mapId = "capture-subtract";
     const captorId = "player-8";
     const ghostId = "ghost-5";
@@ -526,7 +656,8 @@ try {
       "expected ghost territory to decrease after capture"
     );
     clearMapState(mapId);
-  }
+  });
+  // TEST END
 
   console.log("Realtime gameplay tests passed.");
 } catch (err) {
