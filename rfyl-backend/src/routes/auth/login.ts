@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 
 import { firebaseAuth } from '../../config/firebaseAdmin.js';
-import { ensureUserByFirebaseUid } from '../../services/authService.js';
+import { findUserByFirebaseUid } from '../../services/authService.js';
 import { HttpError, parseBearerToken, toHttpError } from './shared.js';
 
 export const createLoginRouter = () => {
@@ -18,11 +18,13 @@ export const createLoginRouter = () => {
       }
 
       const decodedToken = await firebaseAuth.verifyIdToken(idToken);
-      const displayName = String(decodedToken.name ?? '').trim();
+      const synced = await findUserByFirebaseUid(decodedToken.uid);
+      if (!synced) {
+        const missingUserError = new Error('user is not registered') as HttpError;
+        missingUserError.status = 404;
+        throw missingUserError;
+      }
       const email = typeof decodedToken.email === 'string' ? decodedToken.email : '';
-      const preferredUsername =
-        displayName || (email ? email.split('@')[0] ?? decodedToken.uid : decodedToken.uid);
-      const synced = await ensureUserByFirebaseUid(decodedToken.uid, preferredUsername);
 
       res.status(200).json({
         user: {

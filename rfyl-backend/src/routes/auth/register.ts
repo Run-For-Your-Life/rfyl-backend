@@ -19,17 +19,15 @@ export const createRegisterRouter = () => {
 
       const requestedUsername = String(req.body?.username ?? '').trim();
       const requestedEmail = String(req.body?.email ?? '').trim();
+      if (requestedUsername.length === 0) {
+        const validationError = new Error('username is required') as HttpError;
+        validationError.status = 400;
+        throw validationError;
+      }
       const decodedToken = await firebaseAuth.verifyIdToken(idToken);
-      const displayName = String(decodedToken.name ?? '').trim();
       const tokenEmail = typeof decodedToken.email === 'string' ? decodedToken.email : '';
       const email = tokenEmail || requestedEmail || '';
-      const preferredUsername =
-        requestedUsername || displayName || (email ? email.split('@')[0] ?? decodedToken.uid : decodedToken.uid);
-      const synced = await ensureUserByFirebaseUid(
-        decodedToken.uid,
-        preferredUsername,
-        requestedUsername.length > 0
-      );
+      const synced = await ensureUserByFirebaseUid(decodedToken.uid, requestedUsername, true);
 
       res.status(synced.created ? 201 : 200).json({
         user: {
