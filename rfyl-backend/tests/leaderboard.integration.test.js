@@ -42,6 +42,21 @@ const mapIdLocal = `lb-map-local-${runId}`;
 const mapIdOther = `lb-map-other-${runId}`;
 const seededUserIds = [];
 
+async function assertCurrentSchema() {
+  const [ownerUidRows] = await pool.query(
+    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'territories' AND column_name = 'owner_uid' LIMIT 1"
+  );
+  if (ownerUidRows.length === 0) {
+    throw new Error("territories.owner_uid is required by current schema");
+  }
+  const [usernameRows] = await pool.query(
+    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'username' LIMIT 1"
+  );
+  if (usernameRows.length === 0) {
+    throw new Error("users.username is required by current schema");
+  }
+}
+
 async function insertUser(firebaseUid) {
   const [result] = await pool.execute(
     "INSERT INTO users (firebase_uid, username) VALUES (?, ?)",
@@ -73,6 +88,7 @@ async function run() {
   let userC;
 
   try {
+    await assertCurrentSchema();
     await pool.execute("INSERT INTO map_sessions (id, status) VALUES (?, 'active')", [mapIdLocal]);
     await pool.execute("INSERT INTO map_sessions (id, status) VALUES (?, 'active')", [mapIdOther]);
 

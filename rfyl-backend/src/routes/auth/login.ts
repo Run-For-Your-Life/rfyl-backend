@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 
 import { firebaseAuth } from '../../config/firebaseAdmin.js';
-import { ensureUserByFirebaseUid } from '../../services/authService.js';
+import { ensureUserByFirebaseUid, USERNAME_REQUIRED_FOR_NEW_USER } from '../../services/authService.js';
 import { HttpError, parseBearerToken, toHttpError } from './shared.js';
 
 export const createLoginRouter = () => {
@@ -18,11 +18,28 @@ export const createLoginRouter = () => {
       }
 
       const decodedToken = await firebaseAuth.verifyIdToken(idToken);
-      const displayName = String(decodedToken.name ?? '').trim();
       const email = typeof decodedToken.email === 'string' ? decodedToken.email : '';
-      const preferredUsername =
-        displayName || (email ? email.split('@')[0] ?? decodedToken.uid : decodedToken.uid);
-      const synced = await ensureUserByFirebaseUid(decodedToken.uid, preferredUsername);
+      const bodyUsername = String(req.body?.username ?? '').trim();
+      const tokenName = typeof decodedToken.name === 'string' ? decodedToken.name.trim() : '';
+      const bodyEmail = String(req.body?.email ?? '').trim();
+      const effectiveEmail = email || bodyEmail;
+      const emailLocalPart = effectiveEmail.includes('@')
+        ? effectiveEmail.split('@')[0]?.trim() ?? ''
+        : effectiveEmail.trim();
+      const preferredUsername = bodyUsername || tokenName || emailLocalPart;
+
+      let synced;
+      try {
+        synced = await ensureUserByFirebaseUid(decodedToken.uid, preferredUsername);
+      } catch (err: unknown) {
+        const typedError = err as { code?: string };
+        if (typedError.code === USERNAME_REQUIRED_FOR_NEW_USER) {
+          const missingUserError = new Error('username is required for first-time sync') as HttpError;
+          missingUserError.status = 409;
+          throw missingUserError;
+        }
+        throw err;
+      }
 
       res.status(200).json({
         user: {

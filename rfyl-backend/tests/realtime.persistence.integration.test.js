@@ -44,6 +44,29 @@ const poolModule = require("../dist/db/dbclient.js");
 const pool = poolModule.default || poolModule;
 const { appendRealtimeWal, flushRealtimeWalNow } = require("../dist/services/realtimePersistence.js");
 
+const assertCurrentSchema = async () => {
+  const [usernameRows] = await pool.query(
+    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'username' LIMIT 1"
+  );
+  if (usernameRows.length === 0) {
+    throw new Error("users.username is required by current schema");
+  }
+
+  const [ownerUidRows] = await pool.query(
+    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'territories' AND column_name = 'owner_uid' LIMIT 1"
+  );
+  if (ownerUidRows.length === 0) {
+    throw new Error("territories.owner_uid is required by current schema");
+  }
+
+  const [rows] = await pool.query(
+    "SELECT 1 AS present FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'knockouts' LIMIT 1"
+  );
+  if (rows.length === 0) {
+    throw new Error("knockouts table is required by current schema");
+  }
+};
+
 const makeSnapshot = () => ({
   mapId,
   players: [
@@ -92,6 +115,10 @@ const knockoutEvent = {
 
 const run = async () => {
   try {
+    await assertCurrentSchema();
+    await pool.execute("INSERT INTO users (firebase_uid, username) VALUES (?, ?)", [ownerUid, ownerUid]);
+    await pool.execute("INSERT INTO users (firebase_uid, username) VALUES (?, ?)", [attackerUid, attackerUid]);
+
     appendRealtimeWal(mapId, [stateEvent, knockoutEvent], makeSnapshot());
     await flushRealtimeWalNow();
 
@@ -104,7 +131,9 @@ const run = async () => {
       [mapId]
     );
     const [territoryRows] = await pool.query(
-      "SELECT owner_uid, map_id, area_m2, ST_AsGeoJSON(polygon) AS polygon_json, ST_GeometryType(polygon) AS geometry_type FROM territories WHERE map_id = ? AND owner_uid = ?",
+      `SELECT owner_uid AS owner_uid, map_id, area_m2, ST_AsGeoJSON(polygon) AS polygon_json, ST_GeometryType(polygon) AS geometry_type
+       FROM territories
+       WHERE map_id = ? AND owner_uid = ?`,
       [mapId, ownerUid]
     );
     const [knockoutRows] = await pool.query(
@@ -161,6 +190,7 @@ const run = async () => {
       await pool.execute("DELETE FROM realtime_map_snapshots WHERE map_id = ?", [mapId]);
       await pool.execute("DELETE FROM map_sessions WHERE id = ?", [mapId]);
       await pool.execute("DELETE FROM users WHERE firebase_uid = ?", [ownerUid]);
+      await pool.execute("DELETE FROM users WHERE firebase_uid = ?", [attackerUid]);
       if (typeof pool.end === "function") {
         await pool.end();
       }

@@ -1,3 +1,5 @@
+import { RowDataPacket } from 'mysql2/promise';
+
 import pool from './dbclient.js';
 
 export type PersistedRealtimeEvent = {
@@ -136,15 +138,22 @@ export async function syncMapTerritories(snapshots: PersistedMapTerritories[]): 
         )
     );
     if (ownerUids.length > 0) {
-        const userPlaceholders = ownerUids.map(() => '(?, ?)').join(', ');
-        const userValues: string[] = [];
-        for (const ownerUid of ownerUids) {
-            userValues.push(ownerUid, ownerUid);
-        }
-        await pool.query(
-            `INSERT IGNORE INTO users (firebase_uid, username) VALUES ${userPlaceholders}`,
-            userValues
+        const uidPlaceholders = ownerUids.map(() => '?').join(', ');
+        const [rows] = await pool.query<(RowDataPacket & { firebase_uid: string })[]>(
+            `SELECT firebase_uid FROM users WHERE firebase_uid IN (${uidPlaceholders})`,
+            ownerUids
         );
+        const existing = new Set(rows.map((row) => row.firebase_uid));
+        const missing = ownerUids.filter((uid) => !existing.has(uid));
+        if (missing.length > 0) {
+            //Don't fail the whole flush for test/mock identities; skip unknown owners.
+            console.warn(`Realtime territory sync skipping unknown users: ${missing.join(', ')}`);
+            for (const snapshot of normalized) {
+                snapshot.territories = snapshot.territories.filter((territory) =>
+                    existing.has(territory.ownerUid)
+                );
+            }
+        }
     }
 
     const connection = await pool.getConnection();

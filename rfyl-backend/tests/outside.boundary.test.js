@@ -26,6 +26,12 @@ const mapsRouter = createMapsRouter({
     }
     return decoded;
   },
+  resolveUsername: async (decoded) => {
+    if (typeof decoded.name === "string" && decoded.name.trim().length > 0) {
+      return decoded.name.trim();
+    }
+    return decoded.uid;
+  },
 });
 
 function startServer() {
@@ -112,7 +118,7 @@ function authHeaders(token = TOKENS.player) {
     const join = await postJson(
       baseUrl,
       `/api/maps/${mapId}/players/join`,
-      { userId: "player-a", username: "player-a" },
+      { userId: "player-a" },
       authHeaders()
     );
     assert.ok(join.response.status === 200 || join.response.status === 201, "expected join to succeed");

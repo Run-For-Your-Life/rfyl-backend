@@ -13,7 +13,7 @@ export type VerifiedIdentityToken = {
 export type VerifyIdTokenFn = (idToken: string) => Promise<VerifiedIdentityToken>;
 
 export type AuthIdentity = {
-  userId: string;
+  userUid: string;
   username: string;
 };
 
@@ -38,14 +38,6 @@ export function matchesPassword(providedPassword: string, expectedPassword: stri
     return false;
   }
   return timingSafeEqual(provided, expected);
-}
-
-export function deriveUsername(decoded: VerifiedIdentityToken): string {
-  const trimmedName = toTrimmedOptionalString(decoded.name);
-  if (trimmedName) {
-    return trimmedName;
-  }
-  return decoded.uid;
 }
 
 export function extractIdToken(req: Request): string | undefined {

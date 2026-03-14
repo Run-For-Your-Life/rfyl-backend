@@ -18,13 +18,12 @@ export function createJoinRouter(): Router {
     }
 
     const userIdInput = toTrimmedOptionalString((req.body as { userId?: unknown })?.userId);
-    const usernameInput = toTrimmedOptionalString((req.body as { username?: unknown })?.username);
-    if (userIdInput && userIdInput !== authReq.auth.userId) {
+    if (userIdInput && userIdInput !== authReq.auth.userUid) {
       res.status(403).json({ error: 'identity_mismatch' });
       return;
     }
-    const userId = authReq.auth.userId;
-    const username = usernameInput ?? authReq.auth.username;
+    const userId = authReq.auth.userUid;
+    const username = authReq.auth.username;
 
     const existed = hasPlayer(mapId, userId);
     if (!existed && isMapAtCapacity(mapId)) {

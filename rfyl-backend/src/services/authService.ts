@@ -9,6 +9,8 @@ export type SyncedUser = {
   created: boolean;
 };
 
+export const USERNAME_REQUIRED_FOR_NEW_USER = 'username_required_for_new_user';
+
 type UserRow = RowDataPacket & {
   firebase_uid: string;
   username?: string | null;
@@ -17,13 +19,12 @@ type UserRow = RowDataPacket & {
 
 const MAX_USERNAME_LENGTH = 128;
 
-const normalizeUsername = (firebaseUid: string, preferredUsername?: string): string => {
+const normalizeUsername = (preferredUsername?: string): string => {
   const trimmed = typeof preferredUsername === 'string' ? preferredUsername.trim() : '';
-  const selected = trimmed || firebaseUid;
-  return selected.slice(0, MAX_USERNAME_LENGTH);
+  return trimmed.slice(0, MAX_USERNAME_LENGTH);
 };
 
-const findByFirebaseUid = async (firebaseUid: string): Promise<SyncedUser | null> => {
+export const findUserByFirebaseUid = async (firebaseUid: string): Promise<SyncedUser | null> => {
   const [rows] = await pool.query<UserRow[]>(
     'SELECT firebase_uid, username, created_at FROM users WHERE firebase_uid = ? LIMIT 1',
     [firebaseUid]
@@ -32,10 +33,7 @@ const findByFirebaseUid = async (firebaseUid: string): Promise<SyncedUser | null
   if (!row) {
     return null;
   }
-  const rowUsername =
-    typeof row.username === 'string' && row.username.trim().length > 0
-      ? row.username
-      : normalizeUsername(row.firebase_uid);
+  const rowUsername = typeof row.username === 'string' ? row.username.trim().slice(0, MAX_USERNAME_LENGTH) : '';
   return {
     firebaseUid: row.firebase_uid,
     username: rowUsername,
@@ -49,10 +47,16 @@ export const ensureUserByFirebaseUid = async (
   preferredUsername?: string,
   updateExistingUsername = false
 ): Promise<SyncedUser> => {
-  const normalizedUsername = normalizeUsername(firebaseUid, preferredUsername);
-  const existing = await findByFirebaseUid(firebaseUid);
+  const normalizedUsername = normalizeUsername(preferredUsername);
+  const existing = await findUserByFirebaseUid(firebaseUid);
   if (existing) {
-    if (updateExistingUsername && existing.username !== normalizedUsername) {
+    const existing_username_missing = existing.username.trim().length === 0;
+    const should_update_existing_username =
+      normalizedUsername.length > 0 &&
+      existing.username !== normalizedUsername &&
+      (updateExistingUsername || existing_username_missing);
+
+    if (should_update_existing_username) {
       await pool.execute<ResultSetHeader>(
         'UPDATE users SET username = ? WHERE firebase_uid = ?',
         [normalizedUsername, firebaseUid]
@@ -63,6 +67,12 @@ export const ensureUserByFirebaseUid = async (
       };
     }
     return existing;
+  }
+
+  if (normalizedUsername.length === 0) {
+    const error = new Error('username is required for new user sync') as Error & { code?: string };
+    error.code = USERNAME_REQUIRED_FOR_NEW_USER;
+    throw error;
   }
 
   let inserted = false;
@@ -79,7 +89,7 @@ export const ensureUserByFirebaseUid = async (
     }
   }
 
-  const created = await findByFirebaseUid(firebaseUid);
+  const created = await findUserByFirebaseUid(firebaseUid);
   if (created) {
     if (updateExistingUsername && created.username !== normalizedUsername) {
       await pool.execute<ResultSetHeader>(
