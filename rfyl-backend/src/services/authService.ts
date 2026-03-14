@@ -50,7 +50,13 @@ export const ensureUserByFirebaseUid = async (
   const normalizedUsername = normalizeUsername(preferredUsername);
   const existing = await findUserByFirebaseUid(firebaseUid);
   if (existing) {
-    if (updateExistingUsername && normalizedUsername.length > 0 && existing.username !== normalizedUsername) {
+    const existing_username_missing = existing.username.trim().length === 0;
+    const should_update_existing_username =
+      normalizedUsername.length > 0 &&
+      existing.username !== normalizedUsername &&
+      (updateExistingUsername || existing_username_missing);
+
+    if (should_update_existing_username) {
       await pool.execute<ResultSetHeader>(
         'UPDATE users SET username = ? WHERE firebase_uid = ?',
         [normalizedUsername, firebaseUid]
