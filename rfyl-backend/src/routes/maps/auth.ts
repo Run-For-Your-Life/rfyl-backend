@@ -13,7 +13,7 @@ export type VerifiedIdentityToken = {
 export type VerifyIdTokenFn = (idToken: string) => Promise<VerifiedIdentityToken>;
 
 export type AuthIdentity = {
-  userId: string;
+  userUid: string;
   username: string;
 };
 

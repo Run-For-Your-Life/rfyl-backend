@@ -52,9 +52,9 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
     let rejectedNotJoined = false;
     let rejectedOutOfBounds = false;
     const events: RealtimeEvent[] = [];
-    const userId = authReq.auth.userId;
+    const userUid = authReq.auth.userUid;
     const snapshotBefore = getMapSnapshot(mapId); // Start from the player's last known point
-    let previousPoint = getLastPointForUser(snapshotBefore, userId);
+    let previousPoint = getLastPointForUser(snapshotBefore, userUid);
     let distanceMeters = 0;
     let startedAtMs: number | null = null;
     let endedAtMs: number | null = null;
@@ -65,7 +65,7 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
         continue;
       }
       const userIdInput = toTrimmedOptionalString((raw as { userId?: unknown }).userId);
-      if (userIdInput && userIdInput !== userId) {
+      if (userIdInput && userIdInput !== userUid) {
         res.status(403).json({ error: 'identity_mismatch' });
         return;
       }
@@ -80,9 +80,9 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
       if (Number.isNaN(lat) || Number.isNaN(lng)) {
         continue;
       }
-      const userId = authReq.auth.userId;
+      const userUid = authReq.auth.userUid;
       const username = authReq.auth.username;
-      if (!hasPlayer(mapId, userId)) {
+      if (!hasPlayer(mapId, userUid)) {
         rejectedNotJoined = true;
         continue;
       }
@@ -95,13 +95,13 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
         : Date.now();
       const accuracyValue = (raw as { accuracy?: number }).accuracy;
       const update = {
-        userId,
+        userId: userUid,
         lat,
         lng,
         ts,
         ...(accuracyValue === undefined ? {} : { accuracy: Number(accuracyValue) }),
       };
-      const updateEvents = ingestLocation(mapId, userId, update, geometryOps, username);
+      const updateEvents = ingestLocation(mapId, userUid, update, geometryOps, username);
       events.push(...updateEvents);
       accepted += 1;
 
@@ -139,7 +139,7 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
 
     if (distanceMeters > 0 && startedAtMs !== null && endedAtMs !== null) {
       const sample: RunDistanceSample = {
-        userUid: userId,
+        userUid,
         username: authReq.auth.username,
         mapId,
         startedAtMs,

@@ -49,7 +49,7 @@ export function createMapsRouter(options: MapsRouterOptions = {}) {
         return;
       }
       (req as AuthenticatedRequest).auth = {
-        userId: decoded.uid,
+        userUid: decoded.uid,
         username,
       };
       next();

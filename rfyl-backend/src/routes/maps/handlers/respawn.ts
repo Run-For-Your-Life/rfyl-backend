@@ -16,7 +16,7 @@ export function createRespawnRouter(): Router {
       res.status(400).json({ error: 'mapId and userId are required' });
       return;
     }
-    if (userId !== authReq.auth.userId) {
+    if (userId !== authReq.auth.userUid) {
       res.status(403).json({ error: 'identity_mismatch' });
       return;
     }
