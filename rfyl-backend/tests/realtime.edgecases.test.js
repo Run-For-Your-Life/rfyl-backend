@@ -73,6 +73,8 @@ runCase("ingestLocation should ignore stale/out-of-order timestamps", () => {
     assert.ok(before, "expected snapshot before stale packet");
     const beforePlayer = before.players.find((p) => p.userId === userId);
     assert.ok(beforePlayer, "expected player before stale packet");
+    const beforePathLength = beforePlayer.pathLengthMeters;
+    const beforeLastInsideTs = beforePlayer.lastInsidePoint?.ts;
 
     ingestLocation(mapId, userId, { lat: 0.01, lng: 0.01, ts: 150 }, ops, "name-player-stale");
 
@@ -90,6 +92,16 @@ runCase("ingestLocation should ignore stale/out-of-order timestamps", () => {
       afterPlayer.isOutside,
       beforePlayer.isOutside,
       "expected stale packet not to change outside/inside state"
+    );
+    assert.strictEqual(
+      afterPlayer.pathLengthMeters,
+      beforePathLength,
+      "expected stale packet not to change path length"
+    );
+    assert.strictEqual(
+      afterPlayer.lastInsidePoint?.ts,
+      beforeLastInsideTs,
+      "expected stale packet not to change lastInsidePoint"
     );
   } finally {
     clearMapState(mapId);

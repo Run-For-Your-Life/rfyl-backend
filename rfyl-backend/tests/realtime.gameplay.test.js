@@ -232,10 +232,22 @@ try {
     const knocked = events.find(
       (event) => event.type === "knockout" && event.userId === userId
     );
+    const knockoutEvents = events.filter(
+      (event) => event.type === "knockout" && event.userId === userId
+    );
     assert.ok(knocked, "expected self-cross to knock out invulnerable ghost");
+    assert.strictEqual(
+      knockoutEvents.length,
+      1,
+      "expected exactly one knockout event for one self-cross update"
+    );
     const after = getPlayer(mapId, userId);
     assertKnockoutResetState(after);
-    send(0, 0);
+    const postKnockEvents = send(0, 0);
+    assert.ok(
+      !postKnockEvents.some((event) => event.type === "knockout" && event.userId === userId),
+      "expected no duplicate knockout events on next update"
+    );
     const afterMove = getPlayer(mapId, userId);
     assert.strictEqual(afterMove.territory, null, "expected no auto-respawn territory after ghost death");
     clearMapState(mapId);
@@ -259,12 +271,24 @@ try {
     const knocked = events.find(
       (event) => event.type === "knockout" && event.userId === userId
     );
+    const knockoutEvents = events.filter(
+      (event) => event.type === "knockout" && event.userId === userId
+    );
     assert.ok(knocked, "expected self-cross to knock out player");
+    assert.strictEqual(
+      knockoutEvents.length,
+      1,
+      "expected exactly one knockout event for one self-cross update"
+    );
     assert.strictEqual(knocked.username, expectedUsername(userId), "expected knocked username");
     assert.strictEqual(knocked.byUsername, expectedUsername(userId), "expected self knockout byUsername");
     const after = getPlayer(mapId, userId);
     assertKnockoutResetState(after);
-    send(bounds.centerLat, bounds.centerLng);
+    const postKnockEvents = send(bounds.centerLat, bounds.centerLng);
+    assert.ok(
+      !postKnockEvents.some((event) => event.type === "knockout" && event.userId === userId),
+      "expected no duplicate knockout events on next update"
+    );
     const afterMove = getPlayer(mapId, userId);
     assert.strictEqual(afterMove.territory, null, "expected no auto-respawn territory on next location");
     clearMapState(mapId);
@@ -370,7 +394,15 @@ try {
     const knockedGhost = events.find(
       (event) => event.type === "knockout" && event.userId === ghostId
     );
+    const knockoutEvents = events.filter(
+      (event) => event.type === "knockout" && event.userId === ghostId
+    );
     assert.ok(knockedGhost, "expected vulnerable ghost to be knocked");
+    assert.strictEqual(
+      knockoutEvents.length,
+      1,
+      "expected exactly one knockout event when crossing vulnerable ghost path"
+    );
     assert.strictEqual(knockedGhost.username, expectedUsername(ghostId), "expected knocked ghost username");
     assert.strictEqual(knockedGhost.byUsername, expectedUsername(playerId), "expected attacker username");
     const ghostAfterKnock = getPlayer(mapId, ghostId);

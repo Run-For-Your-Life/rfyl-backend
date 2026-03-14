@@ -18,6 +18,8 @@ const TOKENS = {
   playerA: "token-player-a",
   unspawned: "token-player-unspawned",
   joined: "token-player-joined",
+  usernameIgnored: "token-username-ignored",
+  unregistered: "token-unregistered-user",
   victim: "token-victim-user",
   attacker: "token-attacker-user",
   missingJoin: "token-player-never-joined",
@@ -28,6 +30,8 @@ const tokenIdentity = {
   [TOKENS.playerA]: { uid: "player-a", name: "player-a" },
   [TOKENS.unspawned]: { uid: "player-unspawned", name: "player-unspawned" },
   [TOKENS.joined]: { uid: "player-joined", name: "player-joined" },
+  [TOKENS.usernameIgnored]: { uid: "player-username", name: "trusted-username" },
+  [TOKENS.unregistered]: { uid: "player-unregistered", name: "player-unregistered" },
   [TOKENS.victim]: { uid: "victim-user", name: "victim-user" },
   [TOKENS.attacker]: { uid: "attacker-user", name: "attacker-user" },
   [TOKENS.missingJoin]: { uid: "player-never-joined", name: "player-never-joined" },
@@ -43,6 +47,9 @@ const mapsRouter = createMapsRouter({
     return decoded;
   },
   resolveUsername: async (decoded) => {
+    if (decoded.uid === "player-unregistered") {
+      return null;
+    }
     if (typeof decoded.name === "string" && decoded.name.trim().length > 0) {
       return decoded.name.trim();
     }
@@ -184,6 +191,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const mixedBatchMapId = `${mapId}-mixed`;
   const spoofMapId = `${mapId}-spoof`;
   const missingJoinMapId = `${mapId}-missing-join`;
+  const usernameIgnoredMapId = `${mapId}-username-ignored`;
+  const unregisteredMapId = `${mapId}-unregistered`;
 
   try {
     const started = await startServer();
@@ -309,6 +318,51 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       "expected spoof target username to remain unchanged after rejected spoof"
     );
 
+    const unregisteredJoin = await postJson(baseUrl, `/api/maps/${unregisteredMapId}/players/join`, {
+      userId: "player-unregistered",
+    }, authHeaders(TOKENS.unregistered));
+    assert.strictEqual(
+      unregisteredJoin.response.status,
+      403,
+      "expected unregistered users to be blocked before map join"
+    );
+    assert.strictEqual(
+      unregisteredJoin.json?.error,
+      "user_not_registered",
+      "expected user_not_registered for unknown user"
+    );
+
+    const usernameJoin = await postJson(baseUrl, `/api/maps/${usernameIgnoredMapId}/players/join`, {
+      userId: "player-username",
+      username: "spoofed-on-join",
+    }, authHeaders(TOKENS.usernameIgnored));
+    assert.ok(
+      usernameJoin.response.status === 200 || usernameJoin.response.status === 201,
+      "expected username-ignored map join to succeed"
+    );
+
+    const usernameLocation = await postJson(baseUrl, `/api/maps/${usernameIgnoredMapId}/locations`, {
+      userId: "player-username",
+      username: "spoofed-on-location",
+      lat: 37.776,
+      lng: -122.418,
+      ts: Date.now(),
+    }, authHeaders(TOKENS.usernameIgnored));
+    assert.strictEqual(
+      usernameLocation.response.status,
+      422,
+      "expected out-of-bounds location in username test map"
+    );
+    const usernameState = await getJson(baseUrl, `/api/maps/${usernameIgnoredMapId}/state`);
+    assert.strictEqual(usernameState.response.status, 200, "expected username test map state");
+    const usernamePlayer = usernameState.json?.players?.find((p) => p.userId === "player-username");
+    assert.ok(usernamePlayer, "expected username player in map state");
+    assert.strictEqual(
+      usernamePlayer.username,
+      "trusted-username",
+      "expected server-resolved username to override any body username"
+    );
+
     const respawnMissingSpawn = await postJson(baseUrl, `/api/maps/${mapId}/players/player-a/respawn`, {}, authHeaders(TOKENS.playerA));
     assert.strictEqual(respawnMissingSpawn.response.status, 409, "expected respawn to require spawn point for new ghost");
 
@@ -349,6 +403,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     clearMapState(mixedBatchMapId);
     clearMapState(spoofMapId);
     clearMapState(missingJoinMapId);
+    clearMapState(usernameIgnoredMapId);
+    clearMapState(unregisteredMapId);
     console.log("Map reset route tests passed.");
   } catch (err) {
     clearMapState(mapId);
@@ -356,6 +412,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     clearMapState(mixedBatchMapId);
     clearMapState(spoofMapId);
     clearMapState(missingJoinMapId);
+    clearMapState(usernameIgnoredMapId);
+    clearMapState(unregisteredMapId);
     console.error("Map reset route tests failed:");
     console.error(err);
     process.exitCode = 1;

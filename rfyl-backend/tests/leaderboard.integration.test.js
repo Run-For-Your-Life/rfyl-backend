@@ -41,6 +41,29 @@ const runId = Date.now();
 const mapIdLocal = `lb-map-local-${runId}`;
 const mapIdOther = `lb-map-other-${runId}`;
 const seededUserIds = [];
+let territory_owner_column = "owner_id";
+
+async function detectTerritoryOwnerColumn() {
+  const [ownerIdRows] = await pool.query(
+    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'territories' AND column_name = 'owner_id' LIMIT 1"
+  );
+  if (ownerIdRows.length > 0) {
+    return "owner_id";
+  }
+  const [ownerUidRows] = await pool.query(
+    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'territories' AND column_name = 'owner_uid' LIMIT 1"
+  );
+  if (ownerUidRows.length > 0) {
+    return "owner_uid";
+  }
+  const [userUidRows] = await pool.query(
+    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'territories' AND column_name = 'user_uid' LIMIT 1"
+  );
+  if (userUidRows.length > 0) {
+    return "user_uid";
+  }
+  throw new Error("territories table must have owner_id, owner_uid, or user_uid");
+}
 
 async function insertUser(firebaseUid) {
   const [result] = await pool.execute(
@@ -61,7 +84,7 @@ async function insertTerritory(ownerId, mapId, area) {
   }
 
   await pool.execute(
-    `INSERT INTO territories (owner_uid, map_id, polygon, area_m2)
+    `INSERT INTO territories (${territory_owner_column}, map_id, polygon, area_m2)
      VALUES (?, ?, ST_GeomFromText('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'), ?)`,
     [rows[0].firebase_uid, mapId, area]
   );
@@ -73,6 +96,7 @@ async function run() {
   let userC;
 
   try {
+    territory_owner_column = await detectTerritoryOwnerColumn();
     await pool.execute("INSERT INTO map_sessions (id, status) VALUES (?, 'active')", [mapIdLocal]);
     await pool.execute("INSERT INTO map_sessions (id, status) VALUES (?, 'active')", [mapIdOther]);
 
