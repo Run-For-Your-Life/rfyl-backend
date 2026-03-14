@@ -215,7 +215,6 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
     const join = await postJson(baseUrl, `/api/maps/${mapId}/players/join`, {
       userId: "player-a",
-      username: "player-a",
     }, authHeaders(TOKENS.playerA));
     assert.ok(
       join.response.status === 200 || join.response.status === 201,
@@ -225,7 +224,6 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     // Case 1: joined but unspawned player can submit locations; accepted with no territory/path state.
     const unspawnedJoin = await postJson(baseUrl, `/api/maps/${unspawnedMapId}/players/join`, {
       userId: "player-unspawned",
-      username: "player-unspawned",
     }, authHeaders(TOKENS.unspawned));
     assert.ok(
       unspawnedJoin.response.status === 200 || unspawnedJoin.response.status === 201,
@@ -263,7 +261,6 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     // Case 3: mixed-identity /locations batch is rejected under auth-bound identity rules.
     const mixedJoin = await postJson(baseUrl, `/api/maps/${mixedBatchMapId}/players/join`, {
       userId: "player-joined",
-      username: "player-joined",
     }, authHeaders(TOKENS.joined));
     assert.ok(
       mixedJoin.response.status === 200 || mixedJoin.response.status === 201,
@@ -289,7 +286,6 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     // Case 4: spoofed body identity is rejected and does not mutate victim identity.
     const spoofJoin = await postJson(baseUrl, `/api/maps/${spoofMapId}/players/join`, {
       userId: "victim-user",
-      username: "victim-user",
     }, authHeaders(TOKENS.victim));
     assert.ok(
       spoofJoin.response.status === 200 || spoofJoin.response.status === 201,

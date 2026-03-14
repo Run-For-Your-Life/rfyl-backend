@@ -118,7 +118,7 @@ function authHeaders(token = TOKENS.player) {
     const join = await postJson(
       baseUrl,
       `/api/maps/${mapId}/players/join`,
-      { userId: "player-a", username: "player-a" },
+      { userId: "player-a" },
       authHeaders()
     );
     assert.ok(join.response.status === 200 || join.response.status === 201, "expected join to succeed");

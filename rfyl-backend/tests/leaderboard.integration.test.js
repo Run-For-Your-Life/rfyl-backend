@@ -41,28 +41,20 @@ const runId = Date.now();
 const mapIdLocal = `lb-map-local-${runId}`;
 const mapIdOther = `lb-map-other-${runId}`;
 const seededUserIds = [];
-let territory_owner_column = "owner_id";
 
-async function detectTerritoryOwnerColumn() {
-  const [ownerIdRows] = await pool.query(
-    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'territories' AND column_name = 'owner_id' LIMIT 1"
-  );
-  if (ownerIdRows.length > 0) {
-    return "owner_id";
-  }
+async function assertCurrentSchema() {
   const [ownerUidRows] = await pool.query(
     "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'territories' AND column_name = 'owner_uid' LIMIT 1"
   );
-  if (ownerUidRows.length > 0) {
-    return "owner_uid";
+  if (ownerUidRows.length === 0) {
+    throw new Error("territories.owner_uid is required by current schema");
   }
-  const [userUidRows] = await pool.query(
-    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'territories' AND column_name = 'user_uid' LIMIT 1"
+  const [usernameRows] = await pool.query(
+    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'username' LIMIT 1"
   );
-  if (userUidRows.length > 0) {
-    return "user_uid";
+  if (usernameRows.length === 0) {
+    throw new Error("users.username is required by current schema");
   }
-  throw new Error("territories table must have owner_id, owner_uid, or user_uid");
 }
 
 async function insertUser(firebaseUid) {
@@ -84,7 +76,7 @@ async function insertTerritory(ownerId, mapId, area) {
   }
 
   await pool.execute(
-    `INSERT INTO territories (${territory_owner_column}, map_id, polygon, area_m2)
+    `INSERT INTO territories (owner_uid, map_id, polygon, area_m2)
      VALUES (?, ?, ST_GeomFromText('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'), ?)`,
     [rows[0].firebase_uid, mapId, area]
   );
@@ -96,7 +88,7 @@ async function run() {
   let userC;
 
   try {
-    territory_owner_column = await detectTerritoryOwnerColumn();
+    await assertCurrentSchema();
     await pool.execute("INSERT INTO map_sessions (id, status) VALUES (?, 'active')", [mapIdLocal]);
     await pool.execute("INSERT INTO map_sessions (id, status) VALUES (?, 'active')", [mapIdOther]);
 

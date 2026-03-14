@@ -44,41 +44,27 @@ const poolModule = require("../dist/db/dbclient.js");
 const pool = poolModule.default || poolModule;
 const { appendRealtimeWal, flushRealtimeWalNow } = require("../dist/services/realtimePersistence.js");
 
-const usersHasUsernameColumn = async () => {
-  const [rows] = await pool.query(
+const assertCurrentSchema = async () => {
+  const [usernameRows] = await pool.query(
     "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'username' LIMIT 1"
   );
-  return rows.length > 0;
-};
+  if (usernameRows.length === 0) {
+    throw new Error("users.username is required by current schema");
+  }
 
-const tableExists = async (tableName) => {
-  const [rows] = await pool.query(
-    "SELECT 1 AS present FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1",
-    [tableName]
-  );
-  return rows.length > 0;
-};
-
-const detectTerritoryOwnerColumn = async () => {
   const [ownerUidRows] = await pool.query(
     "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'territories' AND column_name = 'owner_uid' LIMIT 1"
   );
-  if (ownerUidRows.length > 0) {
-    return "owner_uid";
+  if (ownerUidRows.length === 0) {
+    throw new Error("territories.owner_uid is required by current schema");
   }
-  const [userUidRows] = await pool.query(
-    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'territories' AND column_name = 'user_uid' LIMIT 1"
+
+  const [rows] = await pool.query(
+    "SELECT 1 AS present FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'knockouts' LIMIT 1"
   );
-  if (userUidRows.length > 0) {
-    return "user_uid";
+  if (rows.length === 0) {
+    throw new Error("knockouts table is required by current schema");
   }
-  const [ownerIdRows] = await pool.query(
-    "SELECT 1 AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'territories' AND column_name = 'owner_id' LIMIT 1"
-  );
-  if (ownerIdRows.length > 0) {
-    return "owner_id";
-  }
-  throw new Error("territories table is missing owner_uid/user_uid/owner_id columns");
 };
 
 const makeSnapshot = () => ({
@@ -129,18 +115,12 @@ const knockoutEvent = {
 
 const run = async () => {
   try {
-    const hasUsername = await usersHasUsernameColumn();
-    if (hasUsername) {
-      await pool.execute("INSERT INTO users (firebase_uid, username) VALUES (?, ?)", [ownerUid, ownerUid]);
-      await pool.execute("INSERT INTO users (firebase_uid, username) VALUES (?, ?)", [attackerUid, attackerUid]);
-    } else {
-      await pool.execute("INSERT INTO users (firebase_uid) VALUES (?)", [ownerUid]);
-      await pool.execute("INSERT INTO users (firebase_uid) VALUES (?)", [attackerUid]);
-    }
+    await assertCurrentSchema();
+    await pool.execute("INSERT INTO users (firebase_uid, username) VALUES (?, ?)", [ownerUid, ownerUid]);
+    await pool.execute("INSERT INTO users (firebase_uid, username) VALUES (?, ?)", [attackerUid, attackerUid]);
 
     appendRealtimeWal(mapId, [stateEvent, knockoutEvent], makeSnapshot());
     await flushRealtimeWalNow();
-    const ownerColumn = await detectTerritoryOwnerColumn();
 
     const [eventRows] = await pool.query(
       "SELECT event_id, map_id, event_type FROM realtime_events WHERE map_id = ?",
@@ -151,18 +131,15 @@ const run = async () => {
       [mapId]
     );
     const [territoryRows] = await pool.query(
-      `SELECT ${ownerColumn} AS owner_uid, map_id, area_m2, ST_AsGeoJSON(polygon) AS polygon_json, ST_GeometryType(polygon) AS geometry_type
+      `SELECT owner_uid AS owner_uid, map_id, area_m2, ST_AsGeoJSON(polygon) AS polygon_json, ST_GeometryType(polygon) AS geometry_type
        FROM territories
-       WHERE map_id = ? AND ${ownerColumn} = ?`,
+       WHERE map_id = ? AND owner_uid = ?`,
       [mapId, ownerUid]
     );
-    const has_knockouts = await tableExists("knockouts");
-    const [knockoutRows] = has_knockouts
-      ? await pool.query(
-          "SELECT source_event_id, map_id, victim_uid, attacker_uid, reason FROM knockouts WHERE map_id = ? AND victim_uid = ? AND attacker_uid = ?",
-          [mapId, ownerUid, attackerUid]
-        )
-      : [[]];
+    const [knockoutRows] = await pool.query(
+      "SELECT source_event_id, map_id, victim_uid, attacker_uid, reason FROM knockouts WHERE map_id = ? AND victim_uid = ? AND attacker_uid = ?",
+      [mapId, ownerUid, attackerUid]
+    );
 
     assert.ok(eventRows.length >= 1, "expected persisted realtime event row");
     assert.strictEqual(eventRows[0].map_id, mapId, "expected event map_id match");
@@ -190,17 +167,15 @@ const run = async () => {
       hasPolygonViaGeoType || hasPolygonViaJsonString || hasPolygonViaJsonObject,
       "expected territory polygon geometry"
     );
-    if (has_knockouts) {
-      assert.strictEqual(knockoutRows.length, 1, "expected one materialized knockout row");
-      assert.strictEqual(knockoutRows[0].map_id, mapId, "expected knockout map_id match");
-      assert.strictEqual(knockoutRows[0].victim_uid, ownerUid, "expected knockout victim uid");
-      assert.strictEqual(knockoutRows[0].attacker_uid, attackerUid, "expected knockout attacker uid");
-      assert.strictEqual(knockoutRows[0].reason, "path-cross", "expected knockout reason");
-      assert.ok(
-        typeof knockoutRows[0].source_event_id === "string" && knockoutRows[0].source_event_id.length > 0,
-        "expected knockout source_event_id for idempotency"
-      );
-    }
+    assert.strictEqual(knockoutRows.length, 1, "expected one materialized knockout row");
+    assert.strictEqual(knockoutRows[0].map_id, mapId, "expected knockout map_id match");
+    assert.strictEqual(knockoutRows[0].victim_uid, ownerUid, "expected knockout victim uid");
+    assert.strictEqual(knockoutRows[0].attacker_uid, attackerUid, "expected knockout attacker uid");
+    assert.strictEqual(knockoutRows[0].reason, "path-cross", "expected knockout reason");
+    assert.ok(
+      typeof knockoutRows[0].source_event_id === "string" && knockoutRows[0].source_event_id.length > 0,
+      "expected knockout source_event_id for idempotency"
+    );
 
     console.log("Realtime persistence integration test passed.");
   } catch (err) {
