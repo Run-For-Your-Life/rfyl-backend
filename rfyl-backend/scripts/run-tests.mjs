@@ -4,6 +4,7 @@ const default_test_files = [
   "tests/smoke.test.js",
   "tests/build.test.js",
   "tests/src-structure.test.js",
+  "tests/auth.login.route.test.js",
   "tests/realtime.capture.test.js",
   "tests/realtime.gameplay.test.js",
   "tests/realtime.snapping.test.js",
