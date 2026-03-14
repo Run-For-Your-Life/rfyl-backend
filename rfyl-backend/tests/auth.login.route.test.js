@@ -6,28 +6,35 @@ console.log("Running auth login route tests...");
 
 execSync("npm run build --silent", { stdio: "inherit" });
 
-const firebaseAdminModule = require("../dist/config/firebaseAdmin.js");
-const authServiceModule = require("../dist/services/authService.js");
-const { createAuthRouter } = require("../dist/routes/auth/index.js");
-
-const originalVerifyIdToken = firebaseAdminModule.firebaseAuth.verifyIdToken.bind(
-  firebaseAdminModule.firebaseAuth
-);
-const originalEnsureUserByFirebaseUid = authServiceModule.ensureUserByFirebaseUid;
-
+const firebase_admin_path = require.resolve("../dist/config/firebaseAdmin.js");
 const token_map = {
   "token-email-only": { uid: "uid-email-only", email: "suncon@oregonstate.edu" },
   "token-name": { uid: "uid-name", email: "name@example.com", name: "TokenName" },
   "token-no-fallback": { uid: "uid-no-fallback" },
 };
-
-firebaseAdminModule.firebaseAuth.verifyIdToken = async (idToken) => {
-  const decoded = token_map[idToken];
-  if (!decoded) {
-    throw new Error("invalid token");
-  }
-  return decoded;
+const fake_firebase_auth = {
+  verifyIdToken: async (idToken) => {
+    const decoded = token_map[idToken];
+    if (!decoded) {
+      throw new Error("invalid token");
+    }
+    return decoded;
+  },
 };
+require.cache[firebase_admin_path] = {
+  id: firebase_admin_path,
+  filename: firebase_admin_path,
+  loaded: true,
+  exports: {
+    firebaseAuth: fake_firebase_auth,
+    firebaseAdmin: { auth: () => fake_firebase_auth },
+  },
+};
+
+const authServiceModule = require("../dist/services/authService.js");
+const { createAuthRouter } = require("../dist/routes/auth/index.js");
+
+const originalEnsureUserByFirebaseUid = authServiceModule.ensureUserByFirebaseUid;
 
 const ensure_calls = [];
 authServiceModule.ensureUserByFirebaseUid = async (firebaseUid, preferredUsername) => {
@@ -155,8 +162,8 @@ function authHeader(token) {
     console.error(error);
     process.exitCode = 1;
   } finally {
-    firebaseAdminModule.firebaseAuth.verifyIdToken = originalVerifyIdToken;
     authServiceModule.ensureUserByFirebaseUid = originalEnsureUserByFirebaseUid;
+    delete require.cache[firebase_admin_path];
     if (server) {
       await stopServer(server);
     }
