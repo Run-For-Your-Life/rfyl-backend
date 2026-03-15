@@ -147,13 +147,13 @@ Use this per-player local state:
 - `not_joined`
 - `joined_unspawned`
 - `spawned_ghost`
-- `active_player`
+- `active_runner`
 
 Transitions:
 - `not_joined -> joined_unspawned`: successful `POST /players/join`
 - `joined_unspawned -> spawned_ghost`: successful respawn with spawn `{lat,lng}`
-- `spawned_ghost -> active_player`: server `state` event with `ghostState: "player"`
-- `active_player -> joined_unspawned`: knockout then territory removed (via SSE updates)
+- `spawned_ghost -> active_runner`: server `state` event with `ghostState: "runner"`
+- `active_runner -> joined_unspawned`: knockout then territory removed (via SSE updates)
 
 ## Rendering Rules
 
