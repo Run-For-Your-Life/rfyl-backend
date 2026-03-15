@@ -23,6 +23,8 @@ const ops = createGeometryOps();
 console.log("Running realtime gameplay tests...");
 
 const expectedUsername = (userId) => `name-${userId}`;
+const GRAPH_UNIT_DEG = 0.001;
+const graphPoint = (x, y) => ({ lng: x * GRAPH_UNIT_DEG, lat: y * GRAPH_UNIT_DEG });
 
 const createSender = (mapId, userId) => {
   let ts = 1;
@@ -448,10 +450,11 @@ try {
     const sendPlayer = createSender(mapId, playerId);
 
     // Spawn victim and build a long enough outside trail to enter vulnerable state.
-    sendGhost(0, 0);
-    const ghostSeeded = getPlayer(mapId, ghostId);
-    const ghostBounds = getBounds(ghostSeeded.territory);
-    makeGhostPath(mapId, ghostId, ghostBounds, sendGhost, 0.01);
+    // Graph view (1 grid unit = 0.001 degrees): victim goes (0, 0) -> (0, -5).
+    const victimSpawn = graphPoint(0, 0);
+    const victimOutside = graphPoint(0, -5);
+    sendGhost(victimSpawn.lat, victimSpawn.lng);
+    sendGhost(victimOutside.lat, victimOutside.lng);
     const ghostBeforeCross = getPlayer(mapId, ghostId);
     assert.strictEqual(ghostBeforeCross.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
     const ghostPath = ghostBeforeCross.path?.geometry.coordinates;
@@ -459,34 +462,40 @@ try {
     const [gStart, gEnd] = ghostPath;
     const [gStartLng, gStartLat] = gStart;
     const [gEndLng, gEndLat] = gEnd;
-
-    // Pick a point halfway along victim segment so crossing is interior, not endpoint-touch.
-    const crossingLng = gStartLng + (gEndLng - gStartLng) * 0.5;
-    const crossingLat = gStartLat + (gEndLat - gStartLat) * 0.5;
     assert.ok(
-      Math.abs(crossingLng - gStartLng) > 1e-12 || Math.abs(crossingLat - gStartLat) > 1e-12,
+      Math.abs(gStartLng) < 1e-9 && Math.abs(gEndLng) < 1e-9,
+      "expected victim segment to stay on x=0 for readable graph geometry"
+    );
+
+    // Choose an interior crossing point on victim line: (0, -1), not either endpoint.
+    const interiorCross = graphPoint(0, -1);
+    assert.ok(
+      Math.abs(interiorCross.lng - gStartLng) > 1e-12 || Math.abs(interiorCross.lat - gStartLat) > 1e-12,
       "expected crossing point to differ from victim start endpoint"
     );
     assert.ok(
-      Math.abs(crossingLng - gEndLng) > 1e-12 || Math.abs(crossingLat - gEndLat) > 1e-12,
+      Math.abs(interiorCross.lng - gEndLng) > 1e-12 || Math.abs(interiorCross.lat - gEndLat) > 1e-12,
       "expected crossing point to differ from victim end endpoint"
     );
 
     // Promotes attacker to full player state; ghosts are not allowed to knock others.
-    makePlayer(mapId, playerId, sendPlayer, 0.02, 0.02);
+    const attackerSpawn = graphPoint(20, 20);
+    makePlayer(mapId, playerId, sendPlayer, attackerSpawn.lat, attackerSpawn.lng);
     const attacker = getPlayer(mapId, playerId);
     const attackerBounds = getBounds(attacker.territory);
 
     // First move starts attacker outside path; second move is the crossing segment.
-    // Center -> left of midpoint creates an approach line that should not intersect yet.
+    // Graph path: center -> (-3, 2) (no hit), then (-3, 2) -> (3, -4) (single hit).
+    const attackerApproach = graphPoint(-3, 2);
+    const attackerCross = graphPoint(3, -4);
     sendPlayer(attackerBounds.centerLat, attackerBounds.centerLng);
-    const approachEvents = sendPlayer(crossingLat, crossingLng - 0.003);
+    const approachEvents = sendPlayer(attackerApproach.lat, attackerApproach.lng);
     assert.ok(
       !approachEvents.some((event) => event.type === "knockout" && event.userId === ghostId),
       "did not expect knockout before crossing segment"
     );
-    // Left -> right through midpoint is the first real intersection with victim path.
-    const crossingEvents = sendPlayer(crossingLat, crossingLng + 0.003);
+    // This move performs the first true intersection and should knock immediately.
+    const crossingEvents = sendPlayer(attackerCross.lat, attackerCross.lng);
 
     const knockedGhost = crossingEvents.find(
       (event) => event.type === "knockout" && event.userId === ghostId
@@ -514,6 +523,83 @@ try {
   // 2. Attacker player crosses that victim segment at an interior midpoint
   // 3. Immediate path-cross knockout on that single intersection segment
   // 4. Victim state resets correctly after knockout
+  // TEST END
+
+  // TEST: Endpoint Touch Knockout
+  // Game Story: Player B does not cut through Player A's line interior;
+  // B only touches exactly one endpoint of A's active outside segment.
+  // TEST SETUP: Make A vulnerable with one outside segment, then move B so its segment ends on A's endpoint.
+  // EXPECTED: Endpoint touch counts as an intersection and knocks A out immediately.
+  runCase("Endpoint touch on vulnerable path counts as knockout", () => {
+    const mapId = "knock-endpoint-touch";
+    const ghostId = "ghost-endpoint-touch";
+    const playerId = "player-endpoint-touch";
+    const sendGhost = createSender(mapId, ghostId);
+    const sendPlayer = createSender(mapId, playerId);
+
+    // Victim setup on graph: (0, 0) -> (0, -5) to create a vulnerable vertical path.
+    const victimSpawn = graphPoint(0, 0);
+    const victimOutside = graphPoint(0, -5);
+    sendGhost(victimSpawn.lat, victimSpawn.lng);
+    sendGhost(victimOutside.lat, victimOutside.lng);
+
+    const ghostBeforeTouch = getPlayer(mapId, ghostId);
+    assert.strictEqual(ghostBeforeTouch.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
+    const ghostPath = ghostBeforeTouch.path?.geometry.coordinates;
+    assert.ok(ghostPath && ghostPath.length >= 2, "expected victim path for endpoint touch");
+    const [gStart, gEnd] = ghostPath;
+    const [gStartLng, gStartLat] = gStart;
+    const [gEndLng, gEndLat] = gEnd;
+
+    // Choose the endpoint that corresponds to the outside tip near (0, -5).
+    const outsideTip =
+      Math.abs(gStartLat - victimOutside.lat) <= Math.abs(gEndLat - victimOutside.lat)
+        ? { lng: gStartLng, lat: gStartLat }
+        : { lng: gEndLng, lat: gEndLat };
+
+    // Attacker setup: full player state is required to knock other players.
+    const attackerSpawn = graphPoint(20, 20);
+    makePlayer(mapId, playerId, sendPlayer, attackerSpawn.lat, attackerSpawn.lng);
+    const attacker = getPlayer(mapId, playerId);
+    const attackerBounds = getBounds(attacker.territory);
+
+    // Graph path:
+    // center -> (2, -5): approach near endpoint without intersecting victim segment.
+    // (2, -5) -> outsideTip: touches exactly at victim endpoint.
+    const attackerApproach = graphPoint(2, -5);
+    sendPlayer(attackerBounds.centerLat, attackerBounds.centerLng);
+    const approachEvents = sendPlayer(attackerApproach.lat, attackerApproach.lng);
+    assert.ok(
+      !approachEvents.some((event) => event.type === "knockout" && event.userId === ghostId),
+      "did not expect knockout before endpoint touch"
+    );
+
+    const touchEvents = sendPlayer(outsideTip.lat, outsideTip.lng);
+    const knockedGhost = touchEvents.find(
+      (event) => event.type === "knockout" && event.userId === ghostId
+    );
+    const knockoutEvents = touchEvents.filter(
+      (event) => event.type === "knockout" && event.userId === ghostId
+    );
+    assert.ok(knockedGhost, "expected endpoint touch to trigger knockout");
+    assert.strictEqual(
+      knockoutEvents.length,
+      1,
+      "expected exactly one victim knockout event from endpoint touch"
+    );
+    assert.strictEqual(knockedGhost.reason, "path-cross", "expected path-cross knockout reason");
+    assert.strictEqual(knockedGhost.byUserId, playerId, "expected attacker id on knockout event");
+    assert.strictEqual(knockedGhost.byUsername, expectedUsername(playerId), "expected attacker username");
+    const ghostAfterKnock = getPlayer(mapId, ghostId);
+    assertKnockoutResetState(ghostAfterKnock);
+    clearMapState(mapId);
+  });
+
+  // VERIFIES:
+  // 1. Victim has a vulnerable active path
+  // 2. Attacker first approaches without intersecting
+  // 3. Touching only the victim endpoint still triggers knockout
+  // 4. Victim state resets after endpoint-touch knockout
   // TEST END
 
   // NOTE FOR CONNOR:
