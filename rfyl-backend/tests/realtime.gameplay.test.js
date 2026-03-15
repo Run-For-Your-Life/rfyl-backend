@@ -542,6 +542,8 @@ try {
     const victimOutside = graphPoint(0, -5);
     sendGhost(victimSpawn.lat, victimSpawn.lng);
     sendGhost(victimOutside.lat, victimOutside.lng);
+    sendGhost(victimSpawn.lat, victimSpawn.lng);
+    sendGhost(victimOutside.lat, victimOutside.lng);
 
     const ghostBeforeTouch = getPlayer(mapId, ghostId);
     assert.strictEqual(ghostBeforeTouch.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
