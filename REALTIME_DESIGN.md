@@ -14,7 +14,7 @@ Constants (units)
 Player states
 - ghost_invulnerable: can be seen; cannot knock; cannot be knocked; immune to territory subtraction.
 - ghost_vulnerable: can be seen; cannot knock; can be knocked; territory can be subtracted.
-- player: can knock; can be knocked; territory can be subtracted.
+- runner: can knock; can be knocked; territory can be subtracted.
 
 State model (per player)
 - territory: GeoJSON Polygon or MultiPolygon feature
@@ -28,23 +28,23 @@ Ingest flow (per location update)
 - On first point, create 3x3m square territory around the point and set ghost_invulnerable.
 - If point is inside territory:
 - If isOutside is true, close the path and capture territory.
-- Update ghost metrics (area, eligibility) and emit state event for non-player or after capture.
+- Update ghost metrics (area, eligibility) and emit state event for non-runner or after capture.
 - If point is outside territory, extend the active path.
 
 Leaving territory (start path)
 - When a player first exits, snap the last inside point to the closest point on the territory boundary.
 - Initialize path with [snappedPoint, currentPoint], set isOutside = true.
 - Compute pathLengthMeters and update ghost vulnerability.
-- Emit a path event. If ghost, emit a state event.
+- Emit a path event. If non-runner ghost, emit a state event.
 
 Outside territory (extend path)
 - Append the new point to the path and increment pathLengthMeters using Haversine distance.
 - Self-cross detection: if the new segment intersects the existing path (excluding the last segment),
   trigger knockout for that player, clear path, set isOutside = false, emit knockout + state.
-- Path-cross detection: players (not ghosts) can knock others whose active path intersects the new
-  segment. Only players with isOutside = true and ghostState != ghost_invulnerable can be knocked.
+- Path-cross detection: runners (not ghosts) can knock others whose active path intersects the new
+  segment. Only runners with isOutside = true and ghostState != ghost_invulnerable can be knocked.
 - On successful knockout, clear the victim path, set isOutside = false, emit knockout event
-  (plus state event for non-players).
+  (plus state event for non-runners).
 - Emit a path event for the mover. If ghost, emit a state event.
 
 Closing a path (capture)
@@ -76,7 +76,7 @@ Realtime endpoints and events
 - POST /api/maps/:mapId/locations accepts single or array point updates and broadcasts events.
 - GET /api/maps/:mapId/stream is SSE; initial event is `ready` with { mapId }.
 - GET /api/maps/:mapId/state returns the current snapshot of all players.
-- POST /api/maps/:mapId/players/:userId/respawn transitions a ghost to player if eligible.
+- POST /api/maps/:mapId/players/:userId/respawn reseeds an eliminated ghost if eligible.
 
 SSE event types (payloads align with realtimeEngine RealtimeEvent)
 - path: { mapId, userId, path: LineString feature }

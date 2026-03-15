@@ -308,7 +308,7 @@ export function ingestLocation(
       );
       events.push(...captureEvents);
     }
-    if (player.ghostState !== 'player' && player.territory) {
+    if (player.ghostState !== 'runner' && player.territory) {
       updateTerritoryMetrics(player);
       events.push(buildStateEvent(state.mapId, player));
     }
@@ -429,7 +429,7 @@ function extendPath(
     player.pathLengthMeters = pathLengthMeters(player.path);
     updateGhostVulnerability(player);
     events.push(buildPathEvent(state.mapId, player));
-    if (player.ghostState !== 'player') {
+    if (player.ghostState !== 'runner') {
       events.push(buildStateEvent(state.mapId, player));
     }
     return events;
@@ -482,7 +482,7 @@ function extendPath(
   }
 
   events.push(buildPathEvent(state.mapId, player));
-  if (player.ghostState !== 'player') {
+  if (player.ghostState !== 'runner') {
     events.push(buildStateEvent(state.mapId, player));
   }
   return events;
@@ -590,8 +590,8 @@ function closePath(
 
   player.territory.properties.updatedAt = Date.now();
   updateTerritoryMetrics(player);
-  if (player.ghostState !== 'player') {
-    player.ghostState = 'player';
+  if (player.ghostState !== 'runner') {
+    player.ghostState = 'runner';
     player.ghostEligible = false;
   }
   events.push({
@@ -831,7 +831,7 @@ function toPathFeature(player: PlayerState): PathFeature {
 }
 
 function canKnock(player: PlayerState): boolean {
-  return player.ghostState === 'player';
+  return player.ghostState === 'runner';
 }
 
 function canBeKnocked(player: PlayerState): boolean {
@@ -839,7 +839,7 @@ function canBeKnocked(player: PlayerState): boolean {
 }
 
 function updateGhostVulnerability(player: PlayerState): void {
-  if (player.ghostState === 'player') {
+  if (player.ghostState === 'runner') {
     player.ghostEligible = false;
     return;
   }

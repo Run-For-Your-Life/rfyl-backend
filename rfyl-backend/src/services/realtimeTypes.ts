@@ -30,7 +30,7 @@ export type PathFeature = {
   };
 };
 
-export type GhostState = 'ghost_invulnerable' | 'ghost_vulnerable' | 'player';
+export type GhostState = 'ghost_invulnerable' | 'ghost_vulnerable' | 'runner';
 
 export type PlayerState = {
   userId: string;
