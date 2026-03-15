@@ -435,6 +435,87 @@ try {
   });
   // TEST END
 
+  // TEST: Single Interior Intersection Knockout
+  // Game Story: Player A has an active outside trail segment from point A to point B. 
+  // Player B draws one movement segment that crosses that line once in the middle.
+  // TEST SETUP: Make A outside with a visible path segment. Make B an active player (not ghost), then send B through the segment
+  // EXPECTED: A is knocked out immediately on that update. B does not need to fully pass through the whole line shape. One valid intersection is enough 
+  runCase("Single interior intersection knocks out vulnerable victim immediately", () => {
+    const mapId = "knock-single-intersection";
+    const ghostId = "ghost-single-intersection";
+    const playerId = "player-single-intersection";
+    const sendGhost = createSender(mapId, ghostId);
+    const sendPlayer = createSender(mapId, playerId);
+
+    // Spawn victim and build a long enough outside trail to enter vulnerable state.
+    sendGhost(0, 0);
+    const ghostSeeded = getPlayer(mapId, ghostId);
+    const ghostBounds = getBounds(ghostSeeded.territory);
+    makeGhostPath(mapId, ghostId, ghostBounds, sendGhost, 0.01);
+    const ghostBeforeCross = getPlayer(mapId, ghostId);
+    assert.strictEqual(ghostBeforeCross.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
+    const ghostPath = ghostBeforeCross.path?.geometry.coordinates;
+    assert.ok(ghostPath && ghostPath.length >= 2, "expected victim path for crossing");
+    const [gStart, gEnd] = ghostPath;
+    const [gStartLng, gStartLat] = gStart;
+    const [gEndLng, gEndLat] = gEnd;
+
+    // Pick a point halfway along victim segment so crossing is interior, not endpoint-touch.
+    const crossingLng = gStartLng + (gEndLng - gStartLng) * 0.5;
+    const crossingLat = gStartLat + (gEndLat - gStartLat) * 0.5;
+    assert.ok(
+      Math.abs(crossingLng - gStartLng) > 1e-12 || Math.abs(crossingLat - gStartLat) > 1e-12,
+      "expected crossing point to differ from victim start endpoint"
+    );
+    assert.ok(
+      Math.abs(crossingLng - gEndLng) > 1e-12 || Math.abs(crossingLat - gEndLat) > 1e-12,
+      "expected crossing point to differ from victim end endpoint"
+    );
+
+    // Promotes attacker to full player state; ghosts are not allowed to knock others.
+    makePlayer(mapId, playerId, sendPlayer, 0.02, 0.02);
+    const attacker = getPlayer(mapId, playerId);
+    const attackerBounds = getBounds(attacker.territory);
+
+    // First move starts attacker outside path; second move is the crossing segment.
+    // Center -> left of midpoint creates an approach line that should not intersect yet.
+    sendPlayer(attackerBounds.centerLat, attackerBounds.centerLng);
+    const approachEvents = sendPlayer(crossingLat, crossingLng - 0.003);
+    assert.ok(
+      !approachEvents.some((event) => event.type === "knockout" && event.userId === ghostId),
+      "did not expect knockout before crossing segment"
+    );
+    // Left -> right through midpoint is the first real intersection with victim path.
+    const crossingEvents = sendPlayer(crossingLat, crossingLng + 0.003);
+
+    const knockedGhost = crossingEvents.find(
+      (event) => event.type === "knockout" && event.userId === ghostId
+    );
+    const knockoutEvents = crossingEvents.filter(
+      (event) => event.type === "knockout" && event.userId === ghostId
+    );
+    assert.ok(knockedGhost, "expected immediate knockout on first interior intersection");
+    assert.strictEqual(
+      knockoutEvents.length,
+      1,
+      "expected exactly one victim knockout event from single crossing segment"
+    );
+    // Reason/attacker identity checks make sure this is true path-cross attribution.
+    assert.strictEqual(knockedGhost.reason, "path-cross", "expected path-cross knockout reason");
+    assert.strictEqual(knockedGhost.byUserId, playerId, "expected attacker id on knockout event");
+    assert.strictEqual(knockedGhost.byUsername, expectedUsername(playerId), "expected attacker username");
+    const ghostAfterKnock = getPlayer(mapId, ghostId);
+    assertKnockoutResetState(ghostAfterKnock);
+    clearMapState(mapId);
+  });
+
+  // VERIFIES:
+  // 1. Victim ghost is vulnerable and has an active outside path
+  // 2. Attacker player crosses that victim segment at an interior midpoint
+  // 3. Immediate path-cross knockout on that single intersection segment
+  // 4. Victim state resets correctly after knockout
+  // TEST END
+
   // NOTE FOR CONNOR:
   // Live Case A parity for the knockout rule:
   // vulnerable outside-path victim is knocked by path-cross,
