@@ -93,7 +93,7 @@ const makePlayer = (mapId, userId, send, seedLat = 0, seedLng = 0) => {
   const bounds = getBounds(player.territory);
   captureLargeArea(mapId, userId, bounds, send);
   const afterCapture = getPlayer(mapId, userId);
-  assert.strictEqual(afterCapture.ghostState, "player", "expected capture to promote ghost to player");
+  assert.strictEqual(afterCapture.ghostState, "runner", "expected capture to promote ghost to runner");
   const respawnEvents = respawnPlayer(mapId, userId);
   assert.strictEqual(respawnEvents.length, 0, "expected respawn to no-op for active player");
 };
@@ -222,7 +222,7 @@ try {
     const bounds = getBounds(player.territory);
     captureLargeArea(mapId, userId, bounds, send);
     const afterCapture = getPlayer(mapId, userId);
-    assert.strictEqual(afterCapture.ghostState, "player");
+    assert.strictEqual(afterCapture.ghostState, "runner");
     assert.strictEqual(afterCapture.ghostEligible, false);
     const respawnEvents = respawnPlayer(mapId, userId);
     assert.strictEqual(respawnEvents.length, 0, "expected respawn to no-op once player is active");
