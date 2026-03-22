@@ -542,8 +542,6 @@ try {
     const victimOutside = graphPoint(0, -5);
     sendGhost(victimSpawn.lat, victimSpawn.lng);
     sendGhost(victimOutside.lat, victimOutside.lng);
-    sendGhost(victimSpawn.lat, victimSpawn.lng);
-    sendGhost(victimOutside.lat, victimOutside.lng);
 
     const ghostBeforeTouch = getPlayer(mapId, ghostId);
     assert.strictEqual(ghostBeforeTouch.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
@@ -602,6 +600,76 @@ try {
   // 2. Attacker first approaches without intersecting
   // 3. Touching only the victim endpoint still triggers knockout
   // 4. Victim state resets after endpoint-touch knockout
+  // TEST END
+
+  // TEST: AFK Player Cannot Punish Active Mover
+  // Game Story: Player A goes AFK while holding an outside path.
+  // Player B is the only one moving. B may cross A's line, but B should never be knocked by A.
+  // TEST SETUP: A creates an outside path and then sends no more updates. B then approaches and crosses A's path.
+  // EXPECTED: Any knockout attribution must be B -> A (if crossing happens), never A -> B.
+  runCase("AFK player cannot punish moving player", () => {
+    const mapId = "afk-cannot-punish";
+    const afkId = "player-afk";
+    const moverId = "player-mover";
+    const sendAfk = createSender(mapId, afkId);
+    const sendMover = createSender(mapId, moverId);
+
+    // AFK setup: make A a full player, then leave territory once and stop sending updates.
+    const afkSpawn = graphPoint(0, 0);
+    makePlayer(mapId, afkId, sendAfk, afkSpawn.lat, afkSpawn.lng);
+    const afk = getPlayer(mapId, afkId);
+    const afkBounds = getBounds(afk.territory);
+    const afkOutside = graphPoint(0, -8);
+    sendAfk(afkBounds.centerLat, afkBounds.centerLng);
+    sendAfk(afkOutside.lat, afkOutside.lng);
+    const afkBeforeCross = getPlayer(mapId, afkId);
+    assert.strictEqual(afkBeforeCross.ghostState, "player", "expected AFK player to remain in player state");
+    assert.ok(afkBeforeCross.isOutside, "expected AFK player to hold an active outside path");
+
+    // Mover setup: full player state so B can perform valid path-cross knockouts.
+    const moverSpawn = graphPoint(20, 20);
+    makePlayer(mapId, moverId, sendMover, moverSpawn.lat, moverSpawn.lng);
+    const mover = getPlayer(mapId, moverId);
+    const moverBounds = getBounds(mover.territory);
+
+    // Graph path:
+    // center -> (2, -6): approach, no intersection with A's x=0 line.
+    // (2, -6) -> (-2, -6): single crossing through A's path.
+    const moverApproach = graphPoint(2, -6);
+    const moverCross = graphPoint(-2, -6);
+    sendMover(moverBounds.centerLat, moverBounds.centerLng);
+    const approachEvents = sendMover(moverApproach.lat, moverApproach.lng);
+    const crossingEvents = sendMover(moverCross.lat, moverCross.lng);
+    const events = [...approachEvents, ...crossingEvents];
+
+    // Core AFK safety assertion: B must never die "by" AFK A.
+    const punishedMoverByAfk = events.find(
+      (event) =>
+        event.type === "knockout" &&
+        event.userId === moverId &&
+        event.byUserId === afkId
+    );
+    assert.ok(!punishedMoverByAfk, "expected no knockout where AFK player punishes moving player");
+
+    // If a path-cross knockout happened, attribution should be mover -> AFK victim.
+    const knockedAfk = events.find(
+      (event) =>
+        event.type === "knockout" &&
+        event.userId === afkId &&
+        event.byUserId === moverId
+    );
+    assert.ok(knockedAfk, "expected mover to knock AFK path owner when crossing their line");
+
+    const moverAfter = getPlayer(mapId, moverId);
+    assert.ok(moverAfter.territory, "expected moving player to remain alive after crossing AFK line");
+    clearMapState(mapId);
+  });
+
+  // VERIFIES:
+  // 1. AFK player keeps an active outside path without sending further updates
+  // 2. Moving player crosses AFK path
+  // 3. No knockout is ever attributed as AFK -> moving player
+  // 4. Crossing attribution, if present, is moving player -> AFK player
   // TEST END
 
   // NOTE FOR CONNOR:
