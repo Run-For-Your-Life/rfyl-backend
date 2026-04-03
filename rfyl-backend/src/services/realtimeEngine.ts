@@ -62,7 +62,7 @@ export type RealtimeEvent =
       mapId: string;
       userId: string;
       username: string;
-      reason: 'manual';
+      reason: 'manual' | 'scheduled';
     };
 
 export type GeometryOps = {
@@ -122,6 +122,10 @@ export function getMapSnapshot(mapId: string): MapSnapshot | null {
 
 export function clearMapState(mapId: string): void {
   mapStates.delete(mapId);
+}
+
+export function getActiveMapIds(): string[] {
+  return Array.from(mapStates.keys());
 }
 
 export function hasPlayer(mapId: string, userId: string): boolean {

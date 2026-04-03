@@ -40,6 +40,24 @@ curl -X POST "http://localhost:2000/api/maps/<mapId>/reset" \
 
 You can also pass the password via header: `x-map-reset-password`.
 
+## Weekly territory reset
+To wipe claimed territory every Monday, set these env vars in your backend env profile:
+
+```bash
+WEEKLY_TERRITORY_RESET_ENABLED=true
+WEEKLY_TERRITORY_RESET_DAY=monday
+WEEKLY_TERRITORY_RESET_HOUR=0
+WEEKLY_TERRITORY_RESET_MINUTE=0
+WEEKLY_TERRITORY_RESET_TZ=America/Los_Angeles
+```
+
+What this does:
+- Deletes all rows from `territories`.
+- Resets any currently active in-memory maps so live players lose claimed territory immediately.
+- Broadcasts reset events for active maps using the existing realtime reset flow.
+
+This only runs while the backend process is up.
+
 ## CloudSQL proxy command
 cloud-sql-proxy \
   --credentials-file /absolute/path/to/ceremonial-tea-477623-h6-45d4b7b2d842.json \
