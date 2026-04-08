@@ -15,6 +15,10 @@ import mapsRoutes from './routes/maps/index.js';
 import profileRoutes from './routes/profile/index.js';
 //Services here
 import { startRealtimeWalFlusher, stopRealtimeWalFlusher } from './services/realtimePersistence.js';
+import {
+  startWeeklyTerritoryResetScheduler,
+  stopWeeklyTerritoryResetScheduler,
+} from './services/weeklyTerritoryReset.js';
 
 const app = express();
 app.use(express.json());
@@ -68,9 +72,11 @@ const PORT = process.env.PORT || 1000;
 const server = app.listen(PORT, () => {
   console.warn(`Server is running on port ${PORT}`);
   startRealtimeWalFlusher();
+  startWeeklyTerritoryResetScheduler();
 });
 
 const shutdown = async () => {
+  stopWeeklyTerritoryResetScheduler();
   await stopRealtimeWalFlusher();
   server.close(() => process.exit(0));
 };

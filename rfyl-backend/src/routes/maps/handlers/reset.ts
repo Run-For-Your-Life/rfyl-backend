@@ -2,9 +2,7 @@ import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
 
 import { getEnv } from '../../../config/env';
-import { clearMapState, getMapSnapshot, type MapSnapshot, type RealtimeEvent } from '../../../services/realtimeEngine';
-import { appendRealtimeWal } from '../../../services/realtimePersistence';
-import { broadcastEvents } from '../../../services/realtimeStream';
+import { resetMap } from '../../../services/mapResetService.js';
 import { matchesPassword } from '../auth';
 
 export function createResetRouter(): Router {
@@ -34,24 +32,9 @@ export function createResetRouter(): Router {
       return;
     }
 
-    const existing = getMapSnapshot(mapId);
-    clearMapState(mapId);
+    const cleared = resetMap(mapId, 'manual');
 
-    const resetEvent: RealtimeEvent = {
-      type: 'reset',
-      mapId,
-      userId: 'system',
-      username: 'system',
-      reason: 'manual',
-    };
-    const resetSnapshot: MapSnapshot = {
-      mapId,
-      players: [],
-    };
-    appendRealtimeWal(mapId, [resetEvent], resetSnapshot);
-    broadcastEvents(mapId, [resetEvent]);
-
-    res.status(200).json({ ok: true, mapId, cleared: Boolean(existing) });
+    res.status(200).json({ ok: true, mapId, cleared });
   });
   return router;
 }
