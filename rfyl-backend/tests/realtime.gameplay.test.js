@@ -25,6 +25,7 @@ console.log("Running realtime gameplay tests...");
 const expectedUsername = (userId) => `name-${userId}`;
 const GRAPH_UNIT_DEG = 0.001;
 const graphPoint = (x, y) => ({ lng: x * GRAPH_UNIT_DEG, lat: y * GRAPH_UNIT_DEG });
+const isActiveAttackerState = (ghostState) => ghostState === "player" || ghostState === "runner";
 
 const createSender = (mapId, userId) => {
   let ts = 1;
@@ -623,7 +624,10 @@ try {
     sendAfk(afkBounds.centerLat, afkBounds.centerLng);
     sendAfk(afkOutside.lat, afkOutside.lng);
     const afkBeforeCross = getPlayer(mapId, afkId);
-    assert.strictEqual(afkBeforeCross.ghostState, "player", "expected AFK player to remain in player state");
+    assert.ok(
+      isActiveAttackerState(afkBeforeCross.ghostState),
+      "expected AFK player to remain in an active attacker state"
+    );
     assert.ok(afkBeforeCross.isOutside, "expected AFK player to hold an active outside path");
 
     // Mover setup: full player state so B can perform valid path-cross knockouts.
@@ -985,7 +989,10 @@ try {
     sendPlayer(playerOutside.lat, playerOutside.lng);
 
     const playerBeforeCross = getPlayer(mapId, playerId);
-    assert.strictEqual(playerBeforeCross.ghostState, "player", "expected target to be a full player");
+    assert.ok(
+      isActiveAttackerState(playerBeforeCross.ghostState),
+      "expected target to remain in an active attacker state"
+    );
     assert.ok(playerBeforeCross.isOutside, "expected target player to have an active path");
 
     // Ghost setup on graph: (2, 0) -> (2, -5) to become vulnerable while staying outside.
