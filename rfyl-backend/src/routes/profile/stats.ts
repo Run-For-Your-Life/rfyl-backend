@@ -65,8 +65,9 @@ export const createProfileStatsRouter = () => {
       const [[timesKnockedOutRow]] = await pool.query<StatRow[]>(
         `SELECT COUNT(*) AS total
          FROM knockouts
-         WHERE victim_uid = ?`,
-        [userUid]
+         WHERE victim_uid = ?
+           AND attacker_uid <> ?`,
+        [userUid, userUid]
       );
 
       const [[rankRow]] = await pool.query<RankRow[]>(
