@@ -2,27 +2,34 @@ import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
 
 import { getMapSnapshot, hasPlayer, respawnPlayer } from '../../../services/realtimeEngine';
+import { isManagedMatchmadeMapId, recordMatchmakingActivity } from '../../../services/mapMatchmaking.js';
 import { appendRealtimeWal } from '../../../services/realtimePersistence';
 import { broadcastEvents } from '../../../services/realtimeStream';
 import type { AuthenticatedRequest } from '../auth';
+import { getResolvedMapId } from '../auth';
 import { isWithinMapBounds } from '../bounds';
 
 export function createRespawnRouter(): Router {
   const router = createRouter();
   router.post('/:mapId/players/:userId/respawn', (req: Request, res: Response) => {
     const authReq = req as AuthenticatedRequest;
-    const { mapId, userId } = req.params;
-    if (!mapId || !userId) {
-      res.status(400).json({ error: 'mapId and userId are required' });
+    const map_id = getResolvedMapId(req);
+    const { userId } = req.params;
+    if (!map_id || !userId) {
+      res.status(404).json({ error: 'player_not_joined' });
       return;
     }
     if (userId !== authReq.auth.userUid) {
       res.status(403).json({ error: 'identity_mismatch' });
       return;
     }
-    if (!hasPlayer(mapId, userId)) {
+    if (!hasPlayer(map_id, userId)) {
       res.status(404).json({ error: 'player_not_joined' });
       return;
+    }
+
+    if (isManagedMatchmadeMapId(map_id)) {
+      recordMatchmakingActivity(authReq.auth.userUid);
     }
 
     const latRaw = (req.body as { lat?: unknown })?.lat;
@@ -48,17 +55,17 @@ export function createRespawnRouter(): Router {
       spawnPoint = { lat, lng, ts: Date.now() };
     }
 
-    const events = respawnPlayer(mapId, userId, spawnPoint);
+    const events = respawnPlayer(map_id, userId, spawnPoint);
     if (events.length === 0) {
       res.status(409).json({ error: 'player not eligible to respawn or missing spawn point' });
       return;
     }
-    const snapshot = getMapSnapshot(mapId);
+    const snapshot = getMapSnapshot(map_id);
     if (snapshot) {
-      appendRealtimeWal(mapId, events, snapshot);
+      appendRealtimeWal(map_id, events, snapshot);
     }
-    broadcastEvents(mapId, events);
-    res.status(200).json({ ok: true });
+    broadcastEvents(map_id, events);
+    res.status(200).json({ ok: true, mapId: map_id });
   });
   return router;
 }
