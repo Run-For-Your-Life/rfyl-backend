@@ -11,6 +11,7 @@ const default_test_files = [
   "tests/realtime.edgecases.test.js",
   "tests/realtime.persistence.test.js",
   "tests/realtime.state-store.test.js",
+  "tests/map.matchmaking.test.js",
   "tests/map.reset.test.js",
   "tests/outside.boundary.test.js",
 ];
