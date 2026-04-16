@@ -6,7 +6,7 @@ import { broadcastEvents } from './realtimeStream.js';
 const DEFAULT_MATCHMADE_MAP_PREFIX = 'weekly-map';
 const PREFERRED_PLAYERS_PER_MAP = 5;
 const MAX_PLAYERS_PER_MAP = 10;
-const DEFAULT_QUEUE_TIMEOUT_MS = 120_000;
+const DEFAULT_QUEUE_TIMEOUT_MS = 45_000;
 const DEFAULT_STALE_QUEUE_MS = 900_000;
 const DEFAULT_CLEANUP_INTERVAL_MS = 60_000;
 
@@ -74,16 +74,24 @@ export function queueMatchmadePlayer(user_id: string, username: string, now = Da
     return existing_map_id;
   }
 
-  state.queued_users.set(user_id, {
-    user_id,
-    username,
-    queued_at: now,
-    updated_at: now,
-  });
+  const existing_queue_entry = state.queued_users.get(user_id);
+  if (existing_queue_entry) {
+    state.queued_users.set(user_id, {
+      ...existing_queue_entry,
+      username,
+    });
+  } else {
+    state.queued_users.set(user_id, {
+      user_id,
+      username,
+      queued_at: now,
+      updated_at: now,
+    });
+  }
 
   if (state.queued_users.size >= PREFERRED_PLAYERS_PER_MAP) {
     flushQueuedPlayers(state, now);
-  } else {
+  } else if (!existing_queue_entry) {
     scheduleNextQueueFlush(state, now);
   }
 

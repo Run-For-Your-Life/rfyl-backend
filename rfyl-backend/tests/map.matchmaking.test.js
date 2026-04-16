@@ -136,6 +136,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       assert.strictEqual(assignment.json?.mapId, undefined, "expected no map assignment before full batch flush");
     }
 
+    const repeatedQueuedPoll = await postJson(baseUrl, "/api/matchmaking/me", {}, players[0].token);
+    assert.strictEqual(repeatedQueuedPoll.response.status, 202, "expected repeated queued poll to remain queued without changing state");
+
     const fifthAssignment = await postJson(baseUrl, "/api/matchmaking/me", {}, players[4].token);
     assert.strictEqual(fifthAssignment.response.status, 200, "expected fifth player to trigger immediate flush assignment");
     assert.strictEqual(fifthAssignment.json?.queued, false, "expected immediate flush to assign the fifth player");
@@ -160,7 +163,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     assert.strictEqual(sixthAssignment.response.status, 202, "expected sixth player to wait for timeout flush");
     assert.strictEqual(sixthAssignment.json?.queued, true, "expected sixth player to be queued initially");
 
-    await sleep(80);
+    await sleep(30);
+    const sixthRepeatedPoll = await postJson(baseUrl, "/api/matchmaking/me", {}, players[5].token);
+    assert.strictEqual(sixthRepeatedPoll.response.status, 202, "expected repeated queued poll not to force assignment early");
+
+    await sleep(40);
 
     const sixthResolvedAssignment = await postJson(baseUrl, "/api/matchmaking/me", {}, players[5].token);
     assert.strictEqual(sixthResolvedAssignment.response.status, 200, "expected timeout flush to eventually assign the sixth player");
