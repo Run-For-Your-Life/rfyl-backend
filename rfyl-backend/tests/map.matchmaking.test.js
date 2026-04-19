@@ -22,7 +22,7 @@ const {
 } = require("../dist/services/mapMatchmaking.js");
 const { clearMapState } = require("../dist/services/realtimeEngine.js");
 
-const players = Array.from({ length: 7 }, (_, index) => ({
+const players = Array.from({ length: 15 }, (_, index) => ({
   token: `token-player-${index + 1}`,
   uid: `player-${index + 1}`,
   name: `player-${index + 1}`,
@@ -141,60 +141,118 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
     const fifthAssignment = await postJson(baseUrl, "/api/matchmaking/me", {}, players[4].token);
     assert.strictEqual(fifthAssignment.response.status, 200, "expected fifth player to trigger immediate flush assignment");
-    assert.strictEqual(fifthAssignment.json?.queued, false, "expected immediate flush to assign the fifth player");
-    assert.ok(typeof fifthAssignment.json?.mapId === "string", "expected assigned map id after full batch flush");
     const firstMapId = fifthAssignment.json.mapId;
     resolvedMapIds.add(firstMapId);
 
-    const firstPlayerJoin = await postJson(
-      baseUrl,
-      `/api/maps/${encodeURIComponent(firstMapId)}/players/join`,
-      { userId: players[0].uid },
-      players[0].token
-    );
-    assert.ok(firstPlayerJoin.response.status === 200 || firstPlayerJoin.response.status === 201, "expected assigned player to join the resolved map");
-
     const firstPlayerState = await getJson(baseUrl, `/api/maps/${encodeURIComponent(firstMapId)}/state`, players[0].token);
     assert.strictEqual(firstPlayerState.response.status, 200, "expected first queued player to resolve after batch flush");
-    assert.strictEqual(firstPlayerState.json?.mapId, firstMapId, "expected first player state to resolve to the flushed map");
-    assert.strictEqual(firstPlayerState.json?.players?.length, 5, "expected flushed map to contain five players");
+    assert.strictEqual(firstPlayerState.json?.players?.length, 5, "expected first flushed map to contain five players");
 
     const sixthAssignment = await postJson(baseUrl, "/api/matchmaking/me", {}, players[5].token);
-    assert.strictEqual(sixthAssignment.response.status, 202, "expected sixth player to wait for timeout flush");
-    assert.strictEqual(sixthAssignment.json?.queued, true, "expected sixth player to be queued initially");
+    assert.strictEqual(sixthAssignment.response.status, 202, "expected sixth player to be queued for timeout flush");
 
-    await sleep(30);
-    const sixthRepeatedPoll = await postJson(baseUrl, "/api/matchmaking/me", {}, players[5].token);
-    assert.strictEqual(sixthRepeatedPoll.response.status, 202, "expected repeated queued poll not to force assignment early");
-
-    await sleep(40);
+    await sleep(80);
 
     const sixthResolvedAssignment = await postJson(baseUrl, "/api/matchmaking/me", {}, players[5].token);
     assert.strictEqual(sixthResolvedAssignment.response.status, 200, "expected timeout flush to eventually assign the sixth player");
-    assert.strictEqual(sixthResolvedAssignment.json?.mapId, firstMapId, "expected timeout flush to place the sixth player into the least populated existing map");
+    assert.strictEqual(sixthResolvedAssignment.json?.mapId, firstMapId, "expected timeout flush of one player to backfill the existing five-player map");
 
-    const sixthState = await getJson(baseUrl, `/api/maps/${encodeURIComponent(firstMapId)}/state`, players[5].token);
-    assert.strictEqual(sixthState.response.status, 200, "expected timeout flush to expose live map state");
-    assert.strictEqual(sixthState.json?.players?.length, 6, "expected timeout flush to backfill the existing map to six players");
+    const firstMapStateAfterTimeout = await getJson(baseUrl, `/api/maps/${encodeURIComponent(firstMapId)}/state`, players[0].token);
+    assert.strictEqual(firstMapStateAfterTimeout.response.status, 200, "expected first map to remain available after timeout flush");
+    assert.strictEqual(firstMapStateAfterTimeout.json?.players?.length, 6, "expected timeout flush of one player to create a six-player map");
+
+    resetWeeklyMatchmaking("underfilled-full-batch");
+
+    for (const player of players.slice(0, 3)) {
+      const assignment = await postJson(baseUrl, "/api/matchmaking/me", {}, player.token);
+      assert.strictEqual(assignment.response.status, 202, `expected queued assignment for ${player.uid}`);
+    }
+    await sleep(80);
+    const seededMapAssignment = await postJson(baseUrl, "/api/matchmaking/me", {}, players[0].token);
+    assert.strictEqual(seededMapAssignment.response.status, 200, "expected timeout flush to create the underfilled seeded map");
+    const underfilledMapId = seededMapAssignment.json.mapId;
+    resolvedMapIds.add(underfilledMapId);
+
+    const underfilledState = await getJson(baseUrl, `/api/maps/${encodeURIComponent(underfilledMapId)}/state`, players[0].token);
+    assert.strictEqual(underfilledState.response.status, 200, "expected underfilled seeded map to expose live state");
+    assert.strictEqual(underfilledState.json?.players?.length, 3, "expected seeded map to start at three players");
+
+    for (const player of players.slice(3, 7)) {
+      const assignment = await postJson(baseUrl, "/api/matchmaking/me", {}, player.token);
+      assert.strictEqual(assignment.response.status, 202, `expected queued assignment for ${player.uid}`);
+    }
+
+    const eighthAssignment = await postJson(baseUrl, "/api/matchmaking/me", {}, players[7].token);
+    assert.strictEqual(eighthAssignment.response.status, 200, "expected fifth queued player to trigger a full five-player flush");
+    assert.strictEqual(eighthAssignment.json.mapId, underfilledMapId, "expected the full flush to place the entire batch into the existing underfilled map");
+
+    const healedUnderfilledState = await getJson(baseUrl, `/api/maps/${encodeURIComponent(underfilledMapId)}/state`, players[0].token);
+    assert.strictEqual(healedUnderfilledState.response.status, 200, "expected healed underfilled map to remain available");
+    assert.strictEqual(healedUnderfilledState.json?.players?.length, 8, "expected the entire full batch to be flushed into the same underfilled map");
+
+    resetWeeklyMatchmaking("oversized-timeout");
+
+    for (const player of players.slice(0, 4)) {
+      const assignment = await postJson(baseUrl, "/api/matchmaking/me", {}, player.token);
+      assert.strictEqual(assignment.response.status, 202, `expected queued assignment for ${player.uid}`);
+    }
+    const seededFiveMapAssignment = await postJson(baseUrl, "/api/matchmaking/me", {}, players[4].token);
+    assert.strictEqual(seededFiveMapAssignment.response.status, 200, "expected fifth player to trigger immediate flush assignment for the seeded timeout target map");
+    const eightPlayerMapId = seededFiveMapAssignment.json.mapId;
+    resolvedMapIds.add(eightPlayerMapId);
+
+    for (const player of players.slice(5, 9)) {
+      const assignment = await postJson(baseUrl, "/api/matchmaking/me", {}, player.token);
+      assert.strictEqual(assignment.response.status, 202, `expected queued assignment for ${player.uid}`);
+    }
+
+    await sleep(80);
+
+    const seededNineMapAssignment = await postJson(baseUrl, "/api/matchmaking/me", {}, players[5].token);
+    assert.strictEqual(seededNineMapAssignment.response.status, 200, "expected timeout backfill to grow the seeded map to nine players");
+    assert.strictEqual(seededNineMapAssignment.json.mapId, eightPlayerMapId, "expected timeout backfill to reuse the existing five-player map");
+
+    const eightPlayerMapState = await getJson(baseUrl, `/api/maps/${encodeURIComponent(eightPlayerMapId)}/state`, players[0].token);
+    assert.strictEqual(eightPlayerMapState.response.status, 200, "expected seeded timeout target map to expose live state");
+    assert.strictEqual(eightPlayerMapState.json?.players?.length, 9, "expected seeded timeout target map to contain nine players after timeout backfill");
+
+    for (const player of players.slice(9, 12)) {
+      const assignment = await postJson(baseUrl, "/api/matchmaking/me", {}, player.token);
+      assert.strictEqual(assignment.response.status, 202, `expected queued assignment for ${player.uid}`);
+    }
+
+    await sleep(80);
+
+    const oversizedTimeoutAssignment = await postJson(baseUrl, "/api/matchmaking/me", {}, players[9].token);
+    assert.strictEqual(oversizedTimeoutAssignment.response.status, 200, "expected oversized timeout flush to assign the batch");
+    const overflowMapId = oversizedTimeoutAssignment.json.mapId;
+    resolvedMapIds.add(overflowMapId);
+    assert.notStrictEqual(overflowMapId, eightPlayerMapId, "expected oversized timeout flush to create a new map instead of splitting into the nearly full map");
+
+    const nearlyFullMapState = await getJson(baseUrl, `/api/maps/${encodeURIComponent(eightPlayerMapId)}/state`, players[0].token);
+    assert.strictEqual(nearlyFullMapState.response.status, 200, "expected nearly full map to remain available after oversized timeout flush");
+    assert.strictEqual(nearlyFullMapState.json?.players?.length, 9, "expected oversized timeout flush not to partially fill the nearly full map");
+
+    const overflowMapState = await getJson(baseUrl, `/api/maps/${encodeURIComponent(overflowMapId)}/state`, players[9].token);
+    assert.strictEqual(overflowMapState.response.status, 200, "expected overflow timeout map to expose live state");
+    assert.strictEqual(overflowMapState.json?.players?.length, 3, "expected oversized timeout flush to keep the whole batch together on a new map");
 
     rolloverWeeklyMatchmaking("after-reset");
 
     const activeAssignments = [];
-    for (const player of players.slice(0, 6)) {
+    for (const player of players.slice(0, 12)) {
       const assignment = await postJson(baseUrl, "/api/matchmaking/me", {}, player.token);
       assert.strictEqual(assignment.response.status, 200, `expected active player ${player.uid} to receive a weekly assignment after rollover`);
       activeAssignments.push(assignment.json?.mapId);
       resolvedMapIds.add(assignment.json?.mapId);
     }
 
-    const resetFirstMapId = activeAssignments[0];
-    const resetSecondMapId = activeAssignments[5];
-    assert.ok(activeAssignments.slice(0, 5).every((mapId) => mapId === resetFirstMapId), "expected active players one through five to be redistributed into the first preferred-size map");
-    assert.notStrictEqual(resetSecondMapId, resetFirstMapId, "expected the sixth active player to spill into a second map after weekly redistribution");
-
-    const inactiveAssignment = await postJson(baseUrl, "/api/matchmaking/me", {}, players[6].token);
-    assert.strictEqual(inactiveAssignment.response.status, 202, "expected inactive player to re-enter the queue after weekly rollover");
-    assert.strictEqual(inactiveAssignment.json?.queued, true, "expected inactive player to be queued rather than pre-assigned");
+    const weeklyAssignmentCounts = new Map();
+    for (const mapId of activeAssignments) {
+      weeklyAssignmentCounts.set(mapId, (weeklyAssignmentCounts.get(mapId) ?? 0) + 1);
+    }
+    const weeklyGroupSizes = Array.from(weeklyAssignmentCounts.values()).sort((a, b) => b - a);
+    assert.deepStrictEqual(weeklyGroupSizes, [5, 5, 2], "expected weekly redistribution to continue targeting preferred groups of five with a smaller spill map");
 
     rolloverWeeklyMatchmaking("after-second-reset");
 
