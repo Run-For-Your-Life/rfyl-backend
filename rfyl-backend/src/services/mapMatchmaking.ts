@@ -6,6 +6,7 @@ import { broadcastEvents } from './realtimeStream.js';
 const DEFAULT_MATCHMADE_MAP_PREFIX = 'weekly-map';
 const PREFERRED_PLAYERS_PER_MAP = 5;
 const MAX_PLAYERS_PER_MAP = 10;
+const FULL_BATCH_UNDERPOPULATED_MAX = 3;
 const DEFAULT_QUEUE_TIMEOUT_MS = 45_000;
 const DEFAULT_STALE_QUEUE_MS = 900_000;
 const DEFAULT_CLEANUP_INTERVAL_MS = 60_000;
@@ -176,14 +177,48 @@ function flushQueuedPlayers(state: MatchmakingState, now: number): void {
   const queued_players = Array.from(state.queued_users.values())
     .sort((a, b) => a.updated_at - b.updated_at || a.user_id.localeCompare(b.user_id));
 
-  for (const entry of queued_players) {
-    const map_id = assignUserToLeastPopulatedMap(state, entry.user_id);
-    state.weekly_active_users.add(entry.user_id);
-    state.queued_users.delete(entry.user_id);
-    joinAssignedPlayer(map_id, entry.user_id, entry.username);
+  if (queued_players.length >= PREFERRED_PLAYERS_PER_MAP) {
+    flushImmediateQueuedBatch(state, queued_players.slice(0, PREFERRED_PLAYERS_PER_MAP));
+  } else {
+    flushTimedOutQueuedBatch(state, queued_players);
   }
 
   scheduleNextQueueFlush(state, now);
+}
+
+function flushImmediateQueuedBatch(state: MatchmakingState, queued_players: QueueEntry[]): void {
+  if (queued_players.length === 0) {
+    return;
+  }
+
+  const target_map_id = selectImmediateBatchTargetMap(state) ?? createNextMapId(state);
+  for (const entry of queued_players) {
+    assignQueuedPlayerToSpecificMap(state, entry, target_map_id);
+  }
+}
+
+function flushTimedOutQueuedBatch(state: MatchmakingState, queued_players: QueueEntry[]): void {
+  if (queued_players.length === 0) {
+    return;
+  }
+
+  const target_map_id = selectTimeoutBatchTargetMap(state, queued_players.length) ?? createNextMapId(state);
+  for (const entry of queued_players) {
+    assignQueuedPlayerToSpecificMap(state, entry, target_map_id);
+  }
+}
+
+function assignQueuedPlayerToSpecificMap(state: MatchmakingState, entry: QueueEntry, map_id: string): void {
+  removeAssignedUser(state, entry.user_id);
+  const users = getOrCreateMapUserSet(state, map_id);
+  if (users.size >= MAX_PLAYERS_PER_MAP) {
+    throw new Error(`attempted to assign queued player to full map ${map_id}`);
+  }
+  users.add(entry.user_id);
+  state.user_to_map.set(entry.user_id, map_id);
+  state.weekly_active_users.add(entry.user_id);
+  state.queued_users.delete(entry.user_id);
+  joinAssignedPlayer(map_id, entry.user_id, entry.username);
 }
 
 function joinAssignedPlayer(map_id: string, user_id: string, username: string): void {
@@ -224,16 +259,6 @@ function scheduleNextQueueFlush(state: MatchmakingState, now: number): void {
   state.queue_flush_timer.unref?.();
 }
 
-function assignUserToLeastPopulatedMap(state: MatchmakingState, user_id: string): string {
-  removeAssignedUser(state, user_id);
-
-  const map_id = selectLeastPopulatedEligibleMapId(state) ?? createNextMapId(state);
-  const users = getOrCreateMapUserSet(state, map_id);
-  users.add(user_id);
-  state.user_to_map.set(user_id, map_id);
-  return map_id;
-}
-
 function assignUserToPreferredWeeklyMap(state: MatchmakingState, user_id: string): void {
   removeAssignedUser(state, user_id);
 
@@ -257,6 +282,28 @@ function removeAssignedUser(state: MatchmakingState, user_id: string): void {
     }
   }
   state.user_to_map.delete(user_id);
+}
+
+function selectImmediateBatchTargetMap(state: MatchmakingState): string | null {
+  return Array.from(state.map_to_users.entries())
+    .filter(([, users]) => users.size > 0 && users.size <= FULL_BATCH_UNDERPOPULATED_MAX)
+    .sort((a, b) => a[1].size - b[1].size || a[0].localeCompare(b[0]))
+    .map(([map_id]) => map_id)[0] ?? null;
+}
+
+function selectTimeoutBatchTargetMap(state: MatchmakingState, batch_size: number): string | null {
+  const map_id = selectLeastPopulatedEligibleMapId(state);
+  if (!map_id) {
+    return null;
+  }
+
+  const users = state.map_to_users.get(map_id);
+  const current_size = users?.size ?? 0;
+  if (current_size + batch_size > MAX_PLAYERS_PER_MAP) {
+    return null;
+  }
+
+  return map_id;
 }
 
 function selectLeastPopulatedEligibleMapId(state: MatchmakingState): string | null {
