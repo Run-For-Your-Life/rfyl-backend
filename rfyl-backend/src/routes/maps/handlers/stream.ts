@@ -2,13 +2,14 @@ import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
 
 import { registerRealtimeClient, removeRealtimeClient } from '../../../services/realtimeStream';
+import { getResolvedMapId } from '../auth';
 
 export function createStreamRouter(): Router {
   const router = createRouter();
   router.get('/:mapId/stream', (req: Request, res: Response) => {
-    const { mapId } = req.params;
+    const mapId = getResolvedMapId(req);
     if (!mapId) {
-      res.status(400).json({ error: 'mapId is required' });
+      res.status(404).json({ error: 'map not found' });
       return;
     }
 

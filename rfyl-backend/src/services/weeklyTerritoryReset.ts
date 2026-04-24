@@ -1,5 +1,6 @@
 import pool from '../db/dbclient.js';
 import { getEnv, getNumberEnv } from '../config/env.js';
+import { rolloverWeeklyMatchmaking } from './mapMatchmaking.js';
 import { getActiveMapIds } from './realtimeEngine.js';
 import { resetMap } from './mapResetService.js';
 
@@ -71,6 +72,7 @@ async function runWeeklyTerritoryReset(dateKey: string): Promise<void> {
     for (const mapId of activeMapIds) {
       resetMap(mapId, 'scheduled');
     }
+    rolloverWeeklyMatchmaking(dateKey);
     lastResetDateKey = dateKey;
 
     const affectedRows =
@@ -78,7 +80,7 @@ async function runWeeklyTerritoryReset(dateKey: string): Promise<void> {
         ? Number((result as { affectedRows?: number }).affectedRows ?? 0)
         : 0;
     console.warn(
-      `Weekly territory reset completed for ${dateKey}. Cleared ${affectedRows} territory rows across ${activeMapIds.length} active maps.`
+      `Weekly territory reset completed for ${dateKey}. Cleared ${affectedRows} territory rows across ${activeMapIds.length} active maps and rebuilt weekly matchmaking.`
     );
   } catch (error) {
     console.warn('Weekly territory reset failed', error);

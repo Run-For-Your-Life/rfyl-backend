@@ -12,8 +12,10 @@ import { requestLogger, errorLogger } from './middleware/index';
 import authRoutes from './routes/auth/index.js';
 import leaderboardRoutes from './routes/leaderboard/index.js';
 import mapsRoutes from './routes/maps/index.js';
+import matchmakingRoutes from './routes/matchmaking/index.js';
 import profileRoutes from './routes/profile/index.js';
 //Services here
+import { startMatchmakingMaintenance, stopMatchmakingMaintenance } from './services/mapMatchmaking.js';
 import { startRealtimeWalFlusher, stopRealtimeWalFlusher } from './services/realtimePersistence.js';
 import {
   startWeeklyTerritoryResetScheduler,
@@ -46,6 +48,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/matchmaking', matchmakingRoutes);
 app.use('/api/maps', mapsRoutes);
 
 app.use(errorLogger);
@@ -72,11 +75,13 @@ const PORT = process.env.PORT || 1000;
 const server = app.listen(PORT, () => {
   console.warn(`Server is running on port ${PORT}`);
   startRealtimeWalFlusher();
+  startMatchmakingMaintenance();
   startWeeklyTerritoryResetScheduler();
 });
 
 const shutdown = async () => {
   stopWeeklyTerritoryResetScheduler();
+  stopMatchmakingMaintenance();
   await stopRealtimeWalFlusher();
   server.close(() => process.exit(0));
 };

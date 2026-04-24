@@ -1,8 +1,9 @@
 import { timingSafeEqual } from 'node:crypto';
 
-import type { Request } from 'express';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
 import { getEnv } from '../../config/env';
+import { getUsernameByFirebaseUid } from '../../services/authIdentityCache.js';
 
 export type VerifiedIdentityToken = {
   uid: string;
@@ -11,6 +12,7 @@ export type VerifiedIdentityToken = {
 };
 
 export type VerifyIdTokenFn = (idToken: string) => Promise<VerifiedIdentityToken>;
+export type ResolveUsernameFn = (decoded: VerifiedIdentityToken) => Promise<string | null>;
 
 export type AuthIdentity = {
   userUid: string;
@@ -19,6 +21,11 @@ export type AuthIdentity = {
 
 export type AuthenticatedRequest = Request & {
   auth: AuthIdentity;
+};
+
+export type AuthenticatedRouteOptions = {
+  verifyIdToken?: VerifyIdTokenFn;
+  resolveUsername?: ResolveUsernameFn;
 };
 
 export const defaultVerifyIdToken: VerifyIdTokenFn = async (idToken) => {
@@ -30,6 +37,36 @@ export const defaultVerifyIdToken: VerifyIdTokenFn = async (idToken) => {
     ...(typeof decoded.email === 'string' ? { email: decoded.email } : {}),
   };
 };
+
+export function createAuthenticatedRequestMiddleware(options: AuthenticatedRouteOptions = {}): RequestHandler {
+  const verifyIdToken = options.verifyIdToken ?? defaultVerifyIdToken;
+  const resolveUsername = options.resolveUsername ?? (async (decoded: VerifiedIdentityToken) =>
+    getUsernameByFirebaseUid(decoded.uid)
+  );
+
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const idToken = extractIdToken(req);
+      if (!idToken) {
+        res.status(401).json({ error: 'missing_auth_token' });
+        return;
+      }
+      const decoded = await verifyIdToken(idToken);
+      const username = await resolveUsername(decoded);
+      if (!username) {
+        res.status(403).json({ error: 'user_not_registered' });
+        return;
+      }
+      (req as AuthenticatedRequest).auth = {
+        userUid: decoded.uid,
+        username,
+      };
+      next();
+    } catch {
+      res.status(401).json({ error: 'invalid_auth_token' });
+    }
+  };
+}
 
 export function matchesPassword(providedPassword: string, expectedPassword: string): boolean {
   const provided = Buffer.from(providedPassword);
@@ -64,6 +101,14 @@ export function extractIdToken(req: Request): string | undefined {
     return decodeURIComponent(value);
   }
   return undefined;
+}
+
+export function getRequestedMapId(req: Request): string | undefined {
+  return req.params.mapId;
+}
+
+export function getResolvedMapId(req: Request): string | undefined {
+  return getRequestedMapId(req);
 }
 
 export function toTrimmedOptionalString(value: unknown): string | undefined {

@@ -3,14 +3,14 @@ import { Router as createRouter } from 'express';
 
 import { getEnv } from '../../../config/env';
 import { resetMap } from '../../../services/mapResetService.js';
-import { matchesPassword } from '../auth';
+import { getResolvedMapId, matchesPassword } from '../auth';
 
 export function createResetRouter(): Router {
   const router = createRouter();
   router.post('/:mapId/reset', (req: Request, res: Response) => {
-    const { mapId } = req.params;
+    const mapId = getResolvedMapId(req);
     if (!mapId) {
-      res.status(400).json({ error: 'mapId is required' });
+      res.status(404).json({ error: 'map not found' });
       return;
     }
 

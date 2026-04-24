@@ -2,11 +2,12 @@ import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
 
 import { getMapSnapshot, hasPlayer, ingestLocation, type RealtimeEvent } from '../../../services/realtimeEngine';
+import { isManagedMatchmadeMapId, recordMatchmakingActivity } from '../../../services/mapMatchmaking.js';
 import { createGeometryOps } from '../../../services/realtimeOps';
 import { appendRealtimeWal } from '../../../services/realtimePersistence';
 import { broadcastEvents } from '../../../services/realtimeStream';
 import type { AuthenticatedRequest } from '../auth';
-import { toTrimmedOptionalString } from '../auth';
+import { getResolvedMapId, toTrimmedOptionalString } from '../auth';
 import { isWithinMapBounds } from '../bounds';
 
 type GeometryOps = ReturnType<typeof createGeometryOps>;
@@ -30,7 +31,6 @@ export type RunDistanceSample = {
 export type RecordRunDistanceFn = (sample: RunDistanceSample) => Promise<void>;
 
 type LocationsRouterOptions = {
-  // Lets tests skip DB writes.
   recordRunDistance?: RecordRunDistanceFn;
 };
 
@@ -42,18 +42,30 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
 
   router.post('/:mapId/locations', (req: Request, res: Response) => {
     const authReq = req as AuthenticatedRequest;
-    const { mapId } = req.params;
-    if (!mapId) {
-      res.status(400).json({ error: 'mapId is required' });
+    const map_id = getResolvedMapId(req);
+    const rawUpdates = Array.isArray(req.body) ? req.body : [req.body];
+
+    if (!map_id) {
+      res.status(409).json({
+        error: 'player_not_joined',
+        received: rawUpdates.length,
+        accepted: 0,
+        rejectedNotJoined: true,
+        rejectedOutOfBounds: false,
+      });
       return;
     }
-    const rawUpdates = Array.isArray(req.body) ? req.body : [req.body];
+
+    if (isManagedMatchmadeMapId(map_id)) {
+      recordMatchmakingActivity(authReq.auth.userUid);
+    }
+
     let accepted = 0;
     let rejectedNotJoined = false;
     let rejectedOutOfBounds = false;
     const events: RealtimeEvent[] = [];
     const userUid = authReq.auth.userUid;
-    const snapshotBefore = getMapSnapshot(mapId); // Start from the player's last known point
+    const snapshotBefore = getMapSnapshot(map_id);
     let previousPoint = getLastPointForUser(snapshotBefore, userUid);
     let distanceMeters = 0;
     let startedAtMs: number | null = null;
@@ -80,9 +92,8 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
       if (Number.isNaN(lat) || Number.isNaN(lng)) {
         continue;
       }
-      const userUid = authReq.auth.userUid;
       const username = authReq.auth.username;
-      if (!hasPlayer(mapId, userUid)) {
+      if (!hasPlayer(map_id, userUid)) {
         rejectedNotJoined = true;
         continue;
       }
@@ -101,7 +112,7 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
         ts,
         ...(accuracyValue === undefined ? {} : { accuracy: Number(accuracyValue) }),
       };
-      const updateEvents = ingestLocation(mapId, userUid, update, geometryOps, username);
+      const updateEvents = ingestLocation(map_id, userUid, update, geometryOps, username);
       events.push(...updateEvents);
       accepted += 1;
 
@@ -130,24 +141,23 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
       distanceMeters += segmentMeters;
     }
 
-    const snapshot = getMapSnapshot(mapId);
+    const snapshot = getMapSnapshot(map_id);
     if (snapshot) {
-      appendRealtimeWal(mapId, events, snapshot);
+      appendRealtimeWal(map_id, events, snapshot);
     }
 
-    broadcastEvents(mapId, events);
+    broadcastEvents(map_id, events);
 
     if (distanceMeters > 0 && startedAtMs !== null && endedAtMs !== null) {
       const sample: RunDistanceSample = {
         userUid,
         username: authReq.auth.username,
-        mapId,
+        mapId: map_id,
         startedAtMs,
         endedAtMs,
         distanceMeters,
         pathCoordinates,
       };
-      // Save distance in the background so this request returns fast
       void recordRunDistance(sample).catch((error) => {
         console.warn('Failed to persist run distance sample', error);
       });
