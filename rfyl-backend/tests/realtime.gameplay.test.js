@@ -78,6 +78,78 @@ const assertKnockoutResetState = (player) => {
   assert.strictEqual(player.ghostEligible, false, "expected ghostEligible reset after knockout");
 };
 
+const getKnockoutEventsForUser = (events, userId) =>
+  events.filter((event) => event.type === "knockout" && event.userId === userId);
+
+const assertSingleKnockoutEvent = (
+  events,
+  {
+    userId,
+    reason,
+    byUserId,
+    username,
+    byUsername,
+    expectedCountMessage = "expected exactly one knockout event",
+  }
+) => {
+  const knockoutEvents = getKnockoutEventsForUser(events, userId);
+  assert.strictEqual(knockoutEvents.length, 1, expectedCountMessage);
+  const [knockoutEvent] = knockoutEvents;
+  assert.ok(knockoutEvent, "expected knockout event to exist");
+
+  if (reason !== undefined) {
+    assert.strictEqual(knockoutEvent.reason, reason, "expected knockout reason");
+  }
+  if (byUserId !== undefined) {
+    assert.strictEqual(knockoutEvent.byUserId, byUserId, "expected knockout attacker id");
+  }
+  if (username !== undefined) {
+    assert.strictEqual(knockoutEvent.username, username, "expected knockout username");
+  }
+  if (byUsername !== undefined) {
+    assert.strictEqual(knockoutEvent.byUsername, byUsername, "expected knockout attacker username");
+  }
+
+  return knockoutEvent;
+};
+
+const assertNoKnockouts = (events, message = "did not expect knockout events") => {
+  const knockoutEvents = events.filter((event) => event.type === "knockout");
+  assert.strictEqual(knockoutEvents.length, 0, message);
+};
+
+const assertNoKnockoutEvent = (
+  events,
+  { userId, byUserId, message = "did not expect knockout event" }
+) => {
+  const unexpected = events.find((event) => {
+    if (event.type !== "knockout") {
+      return false;
+    }
+    if (userId !== undefined && event.userId !== userId) {
+      return false;
+    }
+    if (byUserId !== undefined && event.byUserId !== byUserId) {
+      return false;
+    }
+    return true;
+  });
+  assert.ok(!unexpected, message);
+};
+
+const assertPlayerAlive = (
+  mapId,
+  userId,
+  { expectPath = false, aliveLabel = "player" } = {}
+) => {
+  const player = getPlayer(mapId, userId);
+  assert.ok(player.territory, `expected ${aliveLabel} to remain alive`);
+  if (expectPath) {
+    assert.ok(player.path, `expected ${aliveLabel} to keep an active path`);
+  }
+  return player;
+};
+
 const captureLargeArea = (mapId, userId, bounds, send) => {
   const player = getPlayer(mapId, userId);
   const insideAnchor = player.lastInsidePoint ?? {
@@ -91,12 +163,14 @@ const captureLargeArea = (mapId, userId, bounds, send) => {
 };
 
 const makePlayer = (mapId, userId, send, seedLat = 0, seedLng = 0) => {
+  // Promote the initial ghost into an active runner and prove respawn is no longer applicable.
   send(seedLat, seedLng);
   const player = getPlayer(mapId, userId);
   const bounds = getBounds(player.territory);
   captureLargeArea(mapId, userId, bounds, send);
   const afterCapture = getPlayer(mapId, userId);
   assert.strictEqual(afterCapture.ghostState, "runner", "expected capture to promote ghost to runner");
+  assert.strictEqual(afterCapture.ghostEligible, false, "expected active runner to no longer be ghost-eligible");
   const respawnEvents = respawnPlayer(mapId, userId);
   assert.strictEqual(respawnEvents.length, 0, "expected respawn to no-op for active player");
 };
@@ -111,28 +185,54 @@ const makeGhostPath = (mapId, userId, bounds, send, distanceDeg) => {
   send(bounds.minLat - distanceDeg, bounds.centerLng);
 };
 
+const makeGraphVulnerableGhostPath = (
+  mapId,
+  userId,
+  send,
+  { x = 0, spawnY = 0, outsideY = -5, label = "ghost" } = {}
+) => {
+  const spawn = graphPoint(x, spawnY);
+  const outside = graphPoint(x, outsideY);
+  send(spawn.lat, spawn.lng);
+  send(outside.lat, outside.lng);
+  const ghost = getPlayer(mapId, userId);
+  assert.strictEqual(ghost.ghostState, "ghost_vulnerable", `expected ${label} to be vulnerable`);
+  assert.strictEqual(ghost.ghostEligible, true, `expected ${label} to be ghost-eligible`);
+  assert.ok(ghost.path, `expected ${label} to have an active path`);
+  return ghost;
+};
+
+const makeGraphActiveOutsidePlayer = (
+  mapId,
+  userId,
+  send,
+  { spawnX = 0, spawnY = 0, outsideX = 0, outsideY = -8, label = "player" } = {}
+) => {
+  const spawn = graphPoint(spawnX, spawnY);
+  const outside = graphPoint(outsideX, outsideY);
+  makePlayer(mapId, userId, send, spawn.lat, spawn.lng);
+  const player = getPlayer(mapId, userId);
+  const bounds = getBounds(player.territory);
+  send(bounds.centerLat, bounds.centerLng);
+  send(outside.lat, outside.lng);
+  const activePlayer = getPlayer(mapId, userId);
+  assert.ok(
+    isActiveAttackerState(activePlayer.ghostState),
+    `expected ${label} to remain in an active attacker state`
+  );
+  assert.ok(activePlayer.isOutside, `expected ${label} to hold an active outside path`);
+  return activePlayer;
+};
+
 const runCase = (name, fn) => {
   console.log(`[case] ${name}`);
   fn();
 };
 
 try {
-  // TEST: Ghost Vulnerable Threshold
-  // Description: Ghost becomes vulnerable and eligible after long enough outside path.
-  runCase("Ghost becomes vulnerable after path length exceeds 400m", () => {
-    const mapId = "ghost-vulnerable";
-    const userId = "ghost-1";
-    const send = createSender(mapId, userId);
-    send(0, 0);
-    const player = getPlayer(mapId, userId);
-    const bounds = getBounds(player.territory);
-    makeGhostPath(mapId, userId, bounds, send, 0.004);
-    const updated = getPlayer(mapId, userId);
-    assert.strictEqual(updated.ghostState, "ghost_vulnerable");
-    assert.strictEqual(updated.ghostEligible, true, "expected vulnerable ghosts to be eligible");
-    clearMapState(mapId);
-  });
-  // TEST END
+  // ---------------------------------------------------------------------------
+  // Lifecycle And Spawn-State Coverage
+  // ---------------------------------------------------------------------------
 
   // TEST: Joined + Respawned Ghost Vulnerability
   // Description: Join/respawn flow still allows ghost to become vulnerable after long outside movement.
@@ -173,15 +273,26 @@ try {
     send(0, 0);
 
     const before = getPlayer(mapId, userId);
-    assert.strictEqual(before.ghostEligible, false);
-    assert.strictEqual(before.ghostState, "ghost_invulnerable");
+    assert.strictEqual(before.ghostEligible, false, "expected ghost to start ineligible");
+    assert.strictEqual(before.ghostState, "ghost_invulnerable", "expected invulnerable ghost before respawn");
 
     const respawnEvents = respawnPlayer(mapId, userId);
     assert.strictEqual(respawnEvents.length, 0, "expected no respawn events");
 
     const after = getPlayer(mapId, userId);
-    assert.strictEqual(after.ghostEligible, false);
-    assert.strictEqual(after.ghostState, "ghost_invulnerable");
+    assert.deepStrictEqual(
+      {
+        ghostState: after.ghostState,
+        ghostEligible: after.ghostEligible,
+        territoryAreaSqMeters: after.territoryAreaSqMeters,
+      },
+      {
+        ghostState: before.ghostState,
+        ghostEligible: before.ghostEligible,
+        territoryAreaSqMeters: before.territoryAreaSqMeters,
+      },
+      "expected respawn no-op to leave invulnerable ghost state unchanged"
+    );
     clearMapState(mapId);
   });
   // TEST END
@@ -214,24 +325,9 @@ try {
   });
   // TEST END
 
-  // TEST: Ghost Capture Promotion
-  // Description: Successful capture transitions ghost to player, so respawn is no longer applicable.
-  runCase("Ghost capture transitions to player (no additional respawn step)", () => {
-    const mapId = "ghost-respawn";
-    const userId = "ghost-2";
-    const send = createSender(mapId, userId);
-    send(0, 0);
-    const player = getPlayer(mapId, userId);
-    const bounds = getBounds(player.territory);
-    captureLargeArea(mapId, userId, bounds, send);
-    const afterCapture = getPlayer(mapId, userId);
-    assert.strictEqual(afterCapture.ghostState, "runner");
-    assert.strictEqual(afterCapture.ghostEligible, false);
-    const respawnEvents = respawnPlayer(mapId, userId);
-    assert.strictEqual(respawnEvents.length, 0, "expected respawn to no-op once player is active");
-    clearMapState(mapId);
-  });
-  // TEST END
+  // ---------------------------------------------------------------------------
+  // Knockout And Movement Regression Coverage
+  // ---------------------------------------------------------------------------
 
   // TEST: Invulnerable Ghost Self-Cross Knockout
   // Description: Even invulnerable ghosts should knockout on their own path self-cross.
@@ -248,23 +344,16 @@ try {
     send(-a, b);
     const events = send(a, 0);
 
-    const knocked = events.find(
-      (event) => event.type === "knockout" && event.userId === userId
-    );
-    const knockoutEvents = events.filter(
-      (event) => event.type === "knockout" && event.userId === userId
-    );
+    const knocked = assertSingleKnockoutEvent(events, {
+      userId,
+      expectedCountMessage: "expected exactly one knockout event for one self-cross update",
+    });
     assert.ok(knocked, "expected self-cross to knock out invulnerable ghost");
-    assert.strictEqual(
-      knockoutEvents.length,
-      1,
-      "expected exactly one knockout event for one self-cross update"
-    );
     const after = getPlayer(mapId, userId);
     assertKnockoutResetState(after);
     const postKnockEvents = send(0, 0);
     assert.ok(
-      !postKnockEvents.some((event) => event.type === "knockout" && event.userId === userId),
+      getKnockoutEventsForUser(postKnockEvents, userId).length === 0,
       "expected no duplicate knockout events on next update"
     );
     const afterMove = getPlayer(mapId, userId);
@@ -289,25 +378,18 @@ try {
     send(bounds.minLat - bounds.dLat * 6, bounds.centerLng - bounds.dLng * 2);
     const events = send(bounds.minLat - bounds.dLat * 4, bounds.centerLng - bounds.dLng * 4);
 
-    const knocked = events.find(
-      (event) => event.type === "knockout" && event.userId === userId
-    );
-    const knockoutEvents = events.filter(
-      (event) => event.type === "knockout" && event.userId === userId
-    );
+    const knocked = assertSingleKnockoutEvent(events, {
+      userId,
+      username: expectedUsername(userId),
+      byUsername: expectedUsername(userId),
+      expectedCountMessage: "expected exactly one knockout event for one self-cross update",
+    });
     assert.ok(knocked, "expected self-cross to knock out player");
-    assert.strictEqual(
-      knockoutEvents.length,
-      1,
-      "expected exactly one knockout event for one self-cross update"
-    );
-    assert.strictEqual(knocked.username, expectedUsername(userId), "expected knocked username");
-    assert.strictEqual(knocked.byUsername, expectedUsername(userId), "expected self knockout byUsername");
     const after = getPlayer(mapId, userId);
     assertKnockoutResetState(after);
     const postKnockEvents = send(bounds.centerLat, bounds.centerLng);
     assert.ok(
-      !postKnockEvents.some((event) => event.type === "knockout" && event.userId === userId),
+      getKnockoutEventsForUser(postKnockEvents, userId).length === 0,
       "expected no duplicate knockout events on next update"
     );
     const afterMove = getPlayer(mapId, userId);
@@ -361,21 +443,27 @@ try {
     const sendGhost = createSender(mapId, ghostId);
     const sendPlayer = createSender(mapId, playerId);
 
-    sendGhost(0, 0);
-    const ghost = getPlayer(mapId, ghostId);
-    const ghostBounds = getBounds(ghost.territory);
-    makeGhostPath(mapId, ghostId, ghostBounds, sendGhost, 0.001);
+    // Victim setup on graph: (0, 0) -> (0, -1) keeps the ghost outside but below vulnerability threshold.
+    const ghostSpawn = graphPoint(0, 0);
+    const ghostOutside = graphPoint(0, -1);
+    sendGhost(ghostSpawn.lat, ghostSpawn.lng);
+    sendGhost(ghostOutside.lat, ghostOutside.lng);
     const ghostAfter = getPlayer(mapId, ghostId);
+    assert.strictEqual(ghostAfter.ghostState, "ghost_invulnerable", "expected invulnerable ghost path");
     const ghostPath = ghostAfter.path?.geometry.coordinates;
     assert.ok(ghostPath && ghostPath.length >= 2, "expected ghost path for crossing");
     const [gStart, gEnd] = ghostPath;
     const [gStartLng, gStartLat] = gStart;
     const [gEndLng, gEndLat] = gEnd;
 
-    makePlayer(mapId, playerId, sendPlayer, 0.02, 0.02);
+    // Attacker setup: full player state is required to knock other players.
+    const attackerSpawn = graphPoint(20, 20);
+    makePlayer(mapId, playerId, sendPlayer, attackerSpawn.lat, attackerSpawn.lng);
     const player = getPlayer(mapId, playerId);
     const playerBounds = getBounds(player.territory);
 
+    // Graph path:
+    // center -> left endpoint -> right endpoint attempts a normal crossing, but victim is invulnerable.
     const start = sendPlayer(playerBounds.minLat + playerBounds.dLat * 0.1, playerBounds.centerLng);
     const mid = sendPlayer(gStartLat, gStartLng);
     const end = sendPlayer(gEndLat, gEndLng);
@@ -385,55 +473,6 @@ try {
       (event) => event.type === "knockout" && event.userId === ghostId
     );
     assert.ok(!knockedGhost, "ghost should remain invulnerable to knockouts");
-    clearMapState(mapId);
-  });
-  // TEST END
-
-  // TEST: Player vs Vulnerable Ghost
-  // Description: Player path-cross should knockout a vulnerable ghost and reset victim state.
-  runCase("Player can knock a vulnerable ghost", () => {
-    const mapId = "knock-vulnerable";
-    const ghostId = "ghost-4";
-    const playerId = "player-2";
-    const sendGhost = createSender(mapId, ghostId);
-    const sendPlayer = createSender(mapId, playerId);
-
-    sendGhost(0, 0);
-    const ghost = getPlayer(mapId, ghostId);
-    const ghostBounds = getBounds(ghost.territory);
-    makeGhostPath(mapId, ghostId, ghostBounds, sendGhost, 0.01);
-    const ghostAfter = getPlayer(mapId, ghostId);
-    const ghostPath = ghostAfter.path?.geometry.coordinates;
-    assert.ok(ghostPath && ghostPath.length >= 2, "expected ghost path for crossing");
-    const [gStart, gEnd] = ghostPath;
-    const [gStartLng, gStartLat] = gStart;
-    const [gEndLng, gEndLat] = gEnd;
-
-    makePlayer(mapId, playerId, sendPlayer, 0.02, 0.02);
-    const player = getPlayer(mapId, playerId);
-    const playerBounds = getBounds(player.territory);
-
-    const start = sendPlayer(playerBounds.minLat + playerBounds.dLat * 0.1, playerBounds.centerLng);
-    const mid = sendPlayer(gStartLat, gStartLng);
-    const end = sendPlayer(gEndLat, gEndLng);
-    const events = [...start, ...mid, ...end];
-
-    const knockedGhost = events.find(
-      (event) => event.type === "knockout" && event.userId === ghostId
-    );
-    const knockoutEvents = events.filter(
-      (event) => event.type === "knockout" && event.userId === ghostId
-    );
-    assert.ok(knockedGhost, "expected vulnerable ghost to be knocked");
-    assert.strictEqual(
-      knockoutEvents.length,
-      1,
-      "expected exactly one knockout event when crossing vulnerable ghost path"
-    );
-    assert.strictEqual(knockedGhost.username, expectedUsername(ghostId), "expected knocked ghost username");
-    assert.strictEqual(knockedGhost.byUsername, expectedUsername(playerId), "expected attacker username");
-    const ghostAfterKnock = getPlayer(mapId, ghostId);
-    assertKnockoutResetState(ghostAfterKnock);
     clearMapState(mapId);
   });
   // TEST END
@@ -452,12 +491,11 @@ try {
 
     // Spawn victim and build a long enough outside trail to enter vulnerable state.
     // Graph view (1 grid unit = 0.001 degrees): victim goes (0, 0) -> (0, -5).
-    const victimSpawn = graphPoint(0, 0);
-    const victimOutside = graphPoint(0, -5);
-    sendGhost(victimSpawn.lat, victimSpawn.lng);
-    sendGhost(victimOutside.lat, victimOutside.lng);
-    const ghostBeforeCross = getPlayer(mapId, ghostId);
-    assert.strictEqual(ghostBeforeCross.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
+    const ghostBeforeCross = makeGraphVulnerableGhostPath(mapId, ghostId, sendGhost, {
+      x: 0,
+      outsideY: -5,
+      label: "victim",
+    });
     const ghostPath = ghostBeforeCross.path?.geometry.coordinates;
     assert.ok(ghostPath && ghostPath.length >= 2, "expected victim path for crossing");
     const [gStart, gEnd] = ghostPath;
@@ -498,22 +536,14 @@ try {
     // This move performs the first true intersection and should knock immediately.
     const crossingEvents = sendPlayer(attackerCross.lat, attackerCross.lng);
 
-    const knockedGhost = crossingEvents.find(
-      (event) => event.type === "knockout" && event.userId === ghostId
-    );
-    const knockoutEvents = crossingEvents.filter(
-      (event) => event.type === "knockout" && event.userId === ghostId
-    );
+    const knockedGhost = assertSingleKnockoutEvent(crossingEvents, {
+      userId: ghostId,
+      reason: "path-cross",
+      byUserId: playerId,
+      byUsername: expectedUsername(playerId),
+      expectedCountMessage: "expected exactly one victim knockout event from single crossing segment",
+    });
     assert.ok(knockedGhost, "expected immediate knockout on first interior intersection");
-    assert.strictEqual(
-      knockoutEvents.length,
-      1,
-      "expected exactly one victim knockout event from single crossing segment"
-    );
-    // Reason/attacker identity checks make sure this is true path-cross attribution.
-    assert.strictEqual(knockedGhost.reason, "path-cross", "expected path-cross knockout reason");
-    assert.strictEqual(knockedGhost.byUserId, playerId, "expected attacker id on knockout event");
-    assert.strictEqual(knockedGhost.byUsername, expectedUsername(playerId), "expected attacker username");
     const ghostAfterKnock = getPlayer(mapId, ghostId);
     assertKnockoutResetState(ghostAfterKnock);
     clearMapState(mapId);
@@ -539,13 +569,12 @@ try {
     const sendPlayer = createSender(mapId, playerId);
 
     // Victim setup on graph: (0, 0) -> (0, -5) to create a vulnerable vertical path.
-    const victimSpawn = graphPoint(0, 0);
+    const ghostBeforeTouch = makeGraphVulnerableGhostPath(mapId, ghostId, sendGhost, {
+      x: 0,
+      outsideY: -5,
+      label: "victim",
+    });
     const victimOutside = graphPoint(0, -5);
-    sendGhost(victimSpawn.lat, victimSpawn.lng);
-    sendGhost(victimOutside.lat, victimOutside.lng);
-
-    const ghostBeforeTouch = getPlayer(mapId, ghostId);
-    assert.strictEqual(ghostBeforeTouch.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
     const ghostPath = ghostBeforeTouch.path?.geometry.coordinates;
     assert.ok(ghostPath && ghostPath.length >= 2, "expected victim path for endpoint touch");
     const [gStart, gEnd] = ghostPath;
@@ -576,21 +605,14 @@ try {
     );
 
     const touchEvents = sendPlayer(outsideTip.lat, outsideTip.lng);
-    const knockedGhost = touchEvents.find(
-      (event) => event.type === "knockout" && event.userId === ghostId
-    );
-    const knockoutEvents = touchEvents.filter(
-      (event) => event.type === "knockout" && event.userId === ghostId
-    );
+    const knockedGhost = assertSingleKnockoutEvent(touchEvents, {
+      userId: ghostId,
+      reason: "path-cross",
+      byUserId: playerId,
+      byUsername: expectedUsername(playerId),
+      expectedCountMessage: "expected exactly one victim knockout event from endpoint touch",
+    });
     assert.ok(knockedGhost, "expected endpoint touch to trigger knockout");
-    assert.strictEqual(
-      knockoutEvents.length,
-      1,
-      "expected exactly one victim knockout event from endpoint touch"
-    );
-    assert.strictEqual(knockedGhost.reason, "path-cross", "expected path-cross knockout reason");
-    assert.strictEqual(knockedGhost.byUserId, playerId, "expected attacker id on knockout event");
-    assert.strictEqual(knockedGhost.byUsername, expectedUsername(playerId), "expected attacker username");
     const ghostAfterKnock = getPlayer(mapId, ghostId);
     assertKnockoutResetState(ghostAfterKnock);
     clearMapState(mapId);
@@ -616,19 +638,13 @@ try {
     const sendMover = createSender(mapId, moverId);
 
     // AFK setup: make A a full player, then leave territory once and stop sending updates.
-    const afkSpawn = graphPoint(0, 0);
-    makePlayer(mapId, afkId, sendAfk, afkSpawn.lat, afkSpawn.lng);
-    const afk = getPlayer(mapId, afkId);
-    const afkBounds = getBounds(afk.territory);
-    const afkOutside = graphPoint(0, -8);
-    sendAfk(afkBounds.centerLat, afkBounds.centerLng);
-    sendAfk(afkOutside.lat, afkOutside.lng);
-    const afkBeforeCross = getPlayer(mapId, afkId);
-    assert.ok(
-      isActiveAttackerState(afkBeforeCross.ghostState),
-      "expected AFK player to remain in an active attacker state"
-    );
-    assert.ok(afkBeforeCross.isOutside, "expected AFK player to hold an active outside path");
+    makeGraphActiveOutsidePlayer(mapId, afkId, sendAfk, {
+      spawnX: 0,
+      spawnY: 0,
+      outsideX: 0,
+      outsideY: -8,
+      label: "AFK player",
+    });
 
     // Mover setup: full player state so B can perform valid path-cross knockouts.
     const moverSpawn = graphPoint(20, 20);
@@ -643,29 +659,25 @@ try {
     const moverCross = graphPoint(-2, -6);
     sendMover(moverBounds.centerLat, moverBounds.centerLng);
     const approachEvents = sendMover(moverApproach.lat, moverApproach.lng);
+    assertNoKnockouts(approachEvents, "did not expect knockout before AFK crossing segment");
     const crossingEvents = sendMover(moverCross.lat, moverCross.lng);
     const events = [...approachEvents, ...crossingEvents];
 
     // Core AFK safety assertion: B must never die "by" AFK A.
-    const punishedMoverByAfk = events.find(
-      (event) =>
-        event.type === "knockout" &&
-        event.userId === moverId &&
-        event.byUserId === afkId
-    );
-    assert.ok(!punishedMoverByAfk, "expected no knockout where AFK player punishes moving player");
+    assertNoKnockoutEvent(events, {
+      userId: moverId,
+      byUserId: afkId,
+      message: "expected no knockout where AFK player punishes moving player",
+    });
 
     // If a path-cross knockout happened, attribution should be mover -> AFK victim.
-    const knockedAfk = events.find(
-      (event) =>
-        event.type === "knockout" &&
-        event.userId === afkId &&
-        event.byUserId === moverId
-    );
-    assert.ok(knockedAfk, "expected mover to knock AFK path owner when crossing their line");
+    assertSingleKnockoutEvent(events, {
+      userId: afkId,
+      byUserId: moverId,
+      expectedCountMessage: "expected mover to knock AFK path owner when crossing their line",
+    });
 
-    const moverAfter = getPlayer(mapId, moverId);
-    assert.ok(moverAfter.territory, "expected moving player to remain alive after crossing AFK line");
+    assertPlayerAlive(mapId, moverId, { aliveLabel: "moving player" });
     clearMapState(mapId);
   });
 
@@ -690,13 +702,11 @@ try {
     const sendPlayer = createSender(mapId, playerId);
 
     // Victim setup on graph: (0, 0) -> (0, -5) to create a vulnerable vertical path.
-    const victimSpawn = graphPoint(0, 0);
-    const victimOutside = graphPoint(0, -5);
-    sendGhost(victimSpawn.lat, victimSpawn.lng);
-    sendGhost(victimOutside.lat, victimOutside.lng);
-
-    const ghostBeforeOverlap = getPlayer(mapId, ghostId);
-    assert.strictEqual(ghostBeforeOverlap.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
+    const ghostBeforeOverlap = makeGraphVulnerableGhostPath(mapId, ghostId, sendGhost, {
+      x: 0,
+      outsideY: -5,
+      label: "victim",
+    });
     const ghostPath = ghostBeforeOverlap.path?.geometry.coordinates;
     assert.ok(ghostPath && ghostPath.length >= 2, "expected victim path for overlap");
     const [gStart, gEnd] = ghostPath;
@@ -732,21 +742,14 @@ try {
     );
 
     const overlapEvents = sendPlayer(overlapEnd.lat, overlapEnd.lng);
-    const knockedGhost = overlapEvents.find(
-      (event) => event.type === "knockout" && event.userId === ghostId
-    );
-    const knockoutEvents = overlapEvents.filter(
-      (event) => event.type === "knockout" && event.userId === ghostId
-    );
+    const knockedGhost = assertSingleKnockoutEvent(overlapEvents, {
+      userId: ghostId,
+      reason: "path-cross",
+      byUserId: playerId,
+      byUsername: expectedUsername(playerId),
+      expectedCountMessage: "expected exactly one victim knockout event from overlapping segment",
+    });
     assert.ok(knockedGhost, "expected colinear overlap to trigger knockout");
-    assert.strictEqual(
-      knockoutEvents.length,
-      1,
-      "expected exactly one victim knockout event from overlapping segment"
-    );
-    assert.strictEqual(knockedGhost.reason, "path-cross", "expected path-cross knockout reason");
-    assert.strictEqual(knockedGhost.byUserId, playerId, "expected attacker id on knockout event");
-    assert.strictEqual(knockedGhost.byUsername, expectedUsername(playerId), "expected attacker username");
     const ghostAfterKnock = getPlayer(mapId, ghostId);
     assertKnockoutResetState(ghostAfterKnock);
     const attackerAfter = getPlayer(mapId, playerId);
@@ -773,14 +776,11 @@ try {
     const sendPlayer = createSender(mapId, playerId);
 
     // Victim setup on graph: (0, 0) -> (0, -5) to create a vulnerable vertical path.
-    const victimSpawn = graphPoint(0, 0);
-    const victimOutside = graphPoint(0, -5);
-    sendGhost(victimSpawn.lat, victimSpawn.lng);
-    sendGhost(victimOutside.lat, victimOutside.lng);
-
-    const ghostBeforeMiss = getPlayer(mapId, ghostId);
-    assert.strictEqual(ghostBeforeMiss.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
-    assert.ok(ghostBeforeMiss.path, "expected victim path before near-miss");
+    makeGraphVulnerableGhostPath(mapId, ghostId, sendGhost, {
+      x: 0,
+      outsideY: -5,
+      label: "victim",
+    });
 
     // Attacker setup: full player state so B is allowed to knock if an actual intersection happens.
     const attackerSpawn = graphPoint(20, 20);
@@ -798,15 +798,10 @@ try {
     const nearMissEvents = sendPlayer(nearMissEnd.lat, nearMissEnd.lng);
     const events = [...approachEvents, ...nearMissEvents];
 
-    const anyKnockout = events.find((event) => event.type === "knockout");
-    assert.ok(!anyKnockout, "did not expect knockout from a near-miss segment");
+    assertNoKnockouts(events, "did not expect knockout from a near-miss segment");
 
-    const ghostAfterMiss = getPlayer(mapId, ghostId);
-    assert.ok(ghostAfterMiss.territory, "expected victim to remain alive after near miss");
-    assert.ok(ghostAfterMiss.path, "expected victim path to remain active after near miss");
-
-    const attackerAfterMiss = getPlayer(mapId, playerId);
-    assert.ok(attackerAfterMiss.territory, "expected attacker to remain alive after near miss");
+    assertPlayerAlive(mapId, ghostId, { expectPath: true, aliveLabel: "victim" });
+    assertPlayerAlive(mapId, playerId, { aliveLabel: "attacker" });
     clearMapState(mapId);
   });
 
@@ -830,14 +825,11 @@ try {
     const sendPlayer = createSender(mapId, playerId);
 
     // Victim setup on graph: (0, 0) -> (0, -5) to create a vulnerable vertical path.
-    const victimSpawn = graphPoint(0, 0);
-    const victimOutside = graphPoint(0, -5);
-    sendGhost(victimSpawn.lat, victimSpawn.lng);
-    sendGhost(victimOutside.lat, victimOutside.lng);
-
-    const ghostBeforePriority = getPlayer(mapId, ghostId);
-    assert.strictEqual(ghostBeforePriority.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
-    assert.ok(ghostBeforePriority.path, "expected victim path before priority test");
+    makeGraphVulnerableGhostPath(mapId, ghostId, sendGhost, {
+      x: 0,
+      outsideY: -5,
+      label: "victim",
+    });
 
     // Attacker setup: full player state is required for path-cross checks to even be considered.
     const attackerSpawn = graphPoint(6, 2);
@@ -860,20 +852,18 @@ try {
     sendPlayer(step3.lat, step3.lng);
     const finalEvents = sendPlayer(finalStep.lat, finalStep.lng);
 
-    const selfKnock = finalEvents.find(
-      (event) => event.type === "knockout" && event.userId === playerId
-    );
-    const victimKnock = finalEvents.find(
-      (event) => event.type === "knockout" && event.userId === ghostId
-    );
-    assert.ok(selfKnock, "expected attacker to self-knock on the final segment");
-    assert.strictEqual(selfKnock.reason, "self-cross", "expected self-cross to win precedence");
-    assert.strictEqual(selfKnock.byUserId, playerId, "expected attacker to be their own knockout source");
-    assert.ok(!victimKnock, "did not expect victim knockout when attacker self-crosses first");
+    assertSingleKnockoutEvent(finalEvents, {
+      userId: playerId,
+      reason: "self-cross",
+      byUserId: playerId,
+      expectedCountMessage: "expected attacker to self-knock on the final segment",
+    });
+    assertNoKnockoutEvent(finalEvents, {
+      userId: ghostId,
+      message: "did not expect victim knockout when attacker self-crosses first",
+    });
 
-    const ghostAfterPriority = getPlayer(mapId, ghostId);
-    assert.ok(ghostAfterPriority.territory, "expected victim to remain alive after attacker self-cross");
-    assert.ok(ghostAfterPriority.path, "expected victim path to remain active after attacker self-cross");
+    assertPlayerAlive(mapId, ghostId, { expectPath: true, aliveLabel: "victim" });
 
     const attackerAfterPriority = getPlayer(mapId, playerId);
     assertKnockoutResetState(attackerAfterPriority);
@@ -901,21 +891,18 @@ try {
     const sendPlayer = createSender(mapId, playerId);
 
     // Victim A setup on graph: (0, 0) -> (0, -5).
-    const victimASpawn = graphPoint(0, 0);
-    const victimAOutside = graphPoint(0, -5);
-    sendGhostA(victimASpawn.lat, victimASpawn.lng);
-    sendGhostA(victimAOutside.lat, victimAOutside.lng);
+    makeGraphVulnerableGhostPath(mapId, ghostAId, sendGhostA, {
+      x: 0,
+      outsideY: -5,
+      label: "victim A",
+    });
 
     // Victim B setup on graph: (2, 0) -> (2, -5).
-    const victimBSpawn = graphPoint(2, 0);
-    const victimBOutside = graphPoint(2, -5);
-    sendGhostB(victimBSpawn.lat, victimBSpawn.lng);
-    sendGhostB(victimBOutside.lat, victimBOutside.lng);
-
-    const ghostABefore = getPlayer(mapId, ghostAId);
-    const ghostBBefore = getPlayer(mapId, ghostBId);
-    assert.strictEqual(ghostABefore.ghostState, "ghost_vulnerable", "expected victim A to be vulnerable");
-    assert.strictEqual(ghostBBefore.ghostState, "ghost_vulnerable", "expected victim B to be vulnerable");
+    makeGraphVulnerableGhostPath(mapId, ghostBId, sendGhostB, {
+      x: 2,
+      outsideY: -5,
+      label: "victim B",
+    });
 
     // Attacker setup: full player state so B can legally trigger path-cross knockouts.
     const attackerSpawn = graphPoint(20, 20);
@@ -936,18 +923,18 @@ try {
     );
 
     const crossingEvents = sendPlayer(attackerCross.lat, attackerCross.lng);
-    const ghostAKnockouts = crossingEvents.filter(
-      (event) => event.type === "knockout" && event.userId === ghostAId
-    );
-    const ghostBKnockouts = crossingEvents.filter(
-      (event) => event.type === "knockout" && event.userId === ghostBId
-    );
-    assert.strictEqual(ghostAKnockouts.length, 1, "expected exactly one knockout event for victim A");
-    assert.strictEqual(ghostBKnockouts.length, 1, "expected exactly one knockout event for victim B");
-    assert.strictEqual(ghostAKnockouts[0]?.byUserId, playerId, "expected attacker id for victim A knockout");
-    assert.strictEqual(ghostBKnockouts[0]?.byUserId, playerId, "expected attacker id for victim B knockout");
-    assert.strictEqual(ghostAKnockouts[0]?.reason, "path-cross", "expected path-cross reason for victim A");
-    assert.strictEqual(ghostBKnockouts[0]?.reason, "path-cross", "expected path-cross reason for victim B");
+    assertSingleKnockoutEvent(crossingEvents, {
+      userId: ghostAId,
+      reason: "path-cross",
+      byUserId: playerId,
+      expectedCountMessage: "expected exactly one knockout event for victim A",
+    });
+    assertSingleKnockoutEvent(crossingEvents, {
+      userId: ghostBId,
+      reason: "path-cross",
+      byUserId: playerId,
+      expectedCountMessage: "expected exactly one knockout event for victim B",
+    });
 
     const ghostAAfter = getPlayer(mapId, ghostAId);
     const ghostBAfter = getPlayer(mapId, ghostBId);
@@ -980,29 +967,20 @@ try {
     const sendGhost = createSender(mapId, ghostId);
 
     // Player setup on graph: become a full player, then leave territory to create an active path on x=0.
-    const playerSpawn = graphPoint(0, 0);
-    makePlayer(mapId, playerId, sendPlayer, playerSpawn.lat, playerSpawn.lng);
-    const playerBeforeExit = getPlayer(mapId, playerId);
-    const playerBounds = getBounds(playerBeforeExit.territory);
-    const playerOutside = graphPoint(0, -8);
-    sendPlayer(playerBounds.centerLat, playerBounds.centerLng);
-    sendPlayer(playerOutside.lat, playerOutside.lng);
-
-    const playerBeforeCross = getPlayer(mapId, playerId);
-    assert.ok(
-      isActiveAttackerState(playerBeforeCross.ghostState),
-      "expected target to remain in an active attacker state"
-    );
-    assert.ok(playerBeforeCross.isOutside, "expected target player to have an active path");
+    makeGraphActiveOutsidePlayer(mapId, playerId, sendPlayer, {
+      spawnX: 0,
+      spawnY: 0,
+      outsideX: 0,
+      outsideY: -8,
+      label: "target player",
+    });
 
     // Ghost setup on graph: (2, 0) -> (2, -5) to become vulnerable while staying outside.
-    const ghostSpawn = graphPoint(2, 0);
-    const ghostOutside = graphPoint(2, -5);
-    sendGhost(ghostSpawn.lat, ghostSpawn.lng);
-    sendGhost(ghostOutside.lat, ghostOutside.lng);
-
-    const ghostBeforeCross = getPlayer(mapId, ghostId);
-    assert.strictEqual(ghostBeforeCross.ghostState, "ghost_vulnerable", "expected moving ghost to be vulnerable");
+    const ghostBeforeCross = makeGraphVulnerableGhostPath(mapId, ghostId, sendGhost, {
+      x: 2,
+      outsideY: -5,
+      label: "moving ghost",
+    });
     assert.ok(ghostBeforeCross.isOutside, "expected vulnerable ghost to have an active outside path");
 
     // Graph path:
@@ -1010,22 +988,10 @@ try {
     const ghostCross = graphPoint(-2, -2);
     const crossingEvents = sendGhost(ghostCross.lat, ghostCross.lng);
 
-    const playerKnock = crossingEvents.find(
-      (event) => event.type === "knockout" && event.userId === playerId
-    );
-    const ghostKnock = crossingEvents.find(
-      (event) => event.type === "knockout" && event.userId === ghostId
-    );
-    assert.ok(!playerKnock, "did not expect vulnerable ghost to knock another player");
-    assert.ok(!ghostKnock, "did not expect vulnerable ghost to be knocked by this crossing");
+    assertNoKnockouts(crossingEvents, "did not expect vulnerable ghost crossing to produce knockout events");
 
-    const playerAfterCross = getPlayer(mapId, playerId);
-    assert.ok(playerAfterCross.territory, "expected target player to remain alive after ghost crossing");
-    assert.ok(playerAfterCross.path, "expected target player path to remain active after ghost crossing");
-
-    const ghostAfterCross = getPlayer(mapId, ghostId);
-    assert.ok(ghostAfterCross.territory, "expected vulnerable ghost to remain alive after failed attack");
-    assert.ok(ghostAfterCross.path, "expected vulnerable ghost path to remain active after failed attack");
+    assertPlayerAlive(mapId, playerId, { expectPath: true, aliveLabel: "target player" });
+    assertPlayerAlive(mapId, ghostId, { expectPath: true, aliveLabel: "vulnerable ghost" });
     clearMapState(mapId);
   });
 
@@ -1049,14 +1015,11 @@ try {
     const sendPlayer = createSender(mapId, playerId);
 
     // Victim setup on graph: (0, 0) -> (0, -5) to create a vulnerable vertical path.
-    const victimSpawn = graphPoint(0, 0);
-    const victimOutside = graphPoint(0, -5);
-    sendGhost(victimSpawn.lat, victimSpawn.lng);
-    sendGhost(victimOutside.lat, victimOutside.lng);
-
-    const ghostBeforeStale = getPlayer(mapId, ghostId);
-    assert.strictEqual(ghostBeforeStale.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
-    assert.ok(ghostBeforeStale.path, "expected victim path before stale update test");
+    makeGraphVulnerableGhostPath(mapId, ghostId, sendGhost, {
+      x: 0,
+      outsideY: -5,
+      label: "victim",
+    });
 
     // Attacker setup: become a full player, then move outside to the left of victim path.
     const attackerSpawn = graphPoint(20, 20);
@@ -1071,10 +1034,7 @@ try {
     const staleCrossPoint = graphPoint(2, -2);
     sendPlayer(attackerBounds.centerLat, attackerBounds.centerLng);
     const approachEvents = sendPlayer(attackerApproach.lat, attackerApproach.lng);
-    assert.ok(
-      !approachEvents.some((event) => event.type === "knockout"),
-      "did not expect knockout before stale crossing attempt"
-    );
+    assertNoKnockouts(approachEvents, "did not expect knockout before stale crossing attempt");
 
     const beforeStale = getPlayer(mapId, playerId);
     const beforeStalePathLength = beforeStale.path?.geometry.coordinates.length ?? 0;
@@ -1089,9 +1049,7 @@ try {
     );
     assert.strictEqual(staleEvents.length, 0, "expected stale update to be ignored with no events");
 
-    const ghostAfterStale = getPlayer(mapId, ghostId);
-    assert.ok(ghostAfterStale.territory, "expected victim to remain alive after stale crossing attempt");
-    assert.ok(ghostAfterStale.path, "expected victim path to remain active after stale crossing attempt");
+    assertPlayerAlive(mapId, ghostId, { expectPath: true, aliveLabel: "victim" });
 
     const attackerAfterStale = getPlayer(mapId, playerId);
     assert.ok(attackerAfterStale.path, "expected attacker path to remain active after stale update");
@@ -1110,6 +1068,182 @@ try {
   // 4. Attacker path state does not change after the stale update
   // TEST END
 
+  // TEST: Delayed Attacker Packet Cannot Retroactively Knock Victim
+  // Game Story: Player B has already continued moving on one side of the map,
+  // then an older delayed GPS packet arrives later from a spot that would have crossed Player A's path.
+  // TEST SETUP: A has a vulnerable path on x=0. B exits left, moves farther left,
+  // then sends a stale packet on the right side with an older timestamp.
+  // EXPECTED: The delayed packet is ignored, so A is not knocked and B's current path state does not rewind.
+  runCase("Delayed attacker packet cannot retroactively knock victim", () => {
+    const mapId = "delayed-attacker-packet";
+    const ghostId = "ghost-delayed-packet";
+    const playerId = "player-delayed-packet";
+    const sendGhost = createSender(mapId, ghostId);
+    const sendPlayer = createSender(mapId, playerId);
+
+    // Victim setup on graph: (0, 0) -> (0, -5) to create a vulnerable vertical path.
+    makeGraphVulnerableGhostPath(mapId, ghostId, sendGhost, {
+      x: 0,
+      outsideY: -5,
+      label: "victim",
+    });
+
+    // Attacker setup: become a full player, then move outside to the left of victim path.
+    const attackerSpawn = graphPoint(20, 20);
+    makePlayer(mapId, playerId, sendPlayer, attackerSpawn.lat, attackerSpawn.lng);
+    const attacker = getPlayer(mapId, playerId);
+    const attackerBounds = getBounds(attacker.territory);
+
+    // Graph path:
+    // center -> (-2, -2): valid outside move
+    // (-2, -2) -> (-4, -2): attacker has now continued farther left
+    // delayed stale packet would be (2, -3), which would cross x=0 if accepted as a new segment
+    const step1 = graphPoint(-2, -2);
+    const step2 = graphPoint(-4, -2);
+    const delayedCrossPoint = graphPoint(2, -3);
+    sendPlayer(attackerBounds.centerLat, attackerBounds.centerLng);
+    const step1Events = sendPlayer(step1.lat, step1.lng);
+    assertNoKnockouts(step1Events, "did not expect knockout on first attacker move before delay");
+    const step2Events = sendPlayer(step2.lat, step2.lng);
+    assertNoKnockouts(step2Events, "did not expect knockout before delayed packet arrives");
+
+    const beforeDelayed = getPlayer(mapId, playerId);
+    const beforeDelayedPath = beforeDelayed.path?.geometry.coordinates ?? [];
+    const beforeDelayedPathLength = beforeDelayedPath.length;
+    const beforeDelayedLastPoint = beforeDelayed.lastPoint;
+    assert.ok(beforeDelayedLastPoint, "expected attacker to have a latest point before delayed packet");
+
+    // Send an older packet after attacker has already moved on.
+    const delayedEvents = ingestLocation(
+      mapId,
+      playerId,
+      {
+        lat: delayedCrossPoint.lat,
+        lng: delayedCrossPoint.lng,
+        ts: beforeDelayedLastPoint.ts - 1,
+      },
+      ops,
+      expectedUsername(playerId)
+    );
+    assert.strictEqual(delayedEvents.length, 0, "expected delayed attacker packet to be ignored");
+
+    assertPlayerAlive(mapId, ghostId, { expectPath: true, aliveLabel: "victim" });
+
+    const attackerAfterDelayed = getPlayer(mapId, playerId);
+    assert.ok(attackerAfterDelayed.path, "expected attacker path to remain active after delayed packet");
+    assert.strictEqual(
+      attackerAfterDelayed.lastPoint?.ts,
+      beforeDelayedLastPoint.ts,
+      "expected delayed packet not to replace attacker's latest accepted point"
+    );
+    assert.strictEqual(
+      attackerAfterDelayed.path.geometry.coordinates.length,
+      beforeDelayedPathLength,
+      "expected delayed packet not to splice into attacker path"
+    );
+    assert.deepStrictEqual(
+      attackerAfterDelayed.path.geometry.coordinates[attackerAfterDelayed.path.geometry.coordinates.length - 1],
+      beforeDelayedPath[beforeDelayedPath.length - 1],
+      "expected delayed packet to leave attacker path endpoint unchanged"
+    );
+    clearMapState(mapId);
+  });
+
+  // VERIFIES:
+  // 1. An attacker can already have newer accepted movement when a lagged packet arrives later
+  // 2. The lagged packet is ignored before any retroactive crossing logic can run
+  // 3. Victim remains alive because no delayed knockout is created
+  // 4. Attacker path endpoint and path length stay on the newest accepted state
+  // TEST END
+
+  // TEST: Delayed Runner Packet Cannot Retroactively Knock Another Runner
+  // Game Story: Player A is an active outside runner with newer movement already accepted.
+  // A delayed older packet then arrives that would have crossed Player B's active path if it were processed.
+  // TEST SETUP: B holds an active outside path on x=0. A holds an active outside path on the right side,
+  // moves farther right, then sends a stale packet on the left side with an older timestamp.
+  // EXPECTED: The delayed packet is ignored, so B is not knocked and A's current path state does not rewind.
+  runCase("Delayed runner packet cannot retroactively knock another runner", () => {
+    const mapId = "delayed-runner-packet";
+    const targetId = "player-delayed-target";
+    const laggingRunnerId = "player-delayed-runner";
+    const sendTarget = createSender(mapId, targetId);
+    const sendLaggingRunner = createSender(mapId, laggingRunnerId);
+
+    // Target setup on graph: become a full runner, then hold an active path on x=0.
+    makeGraphActiveOutsidePlayer(mapId, targetId, sendTarget, {
+      spawnX: 0,
+      spawnY: 0,
+      outsideX: 0,
+      outsideY: -8,
+      label: "target player",
+    });
+
+    // Lagging runner setup on graph: become a full runner, then hold an active path on the right side.
+    makeGraphActiveOutsidePlayer(mapId, laggingRunnerId, sendLaggingRunner, {
+      spawnX: 10,
+      spawnY: 0,
+      outsideX: 4,
+      outsideY: -2,
+      label: "lagging runner",
+    });
+
+    // Graph path:
+    // current accepted move extends rightward: (4, -2) -> (6, -2)
+    // delayed stale packet would be (-2, -3), which would cross target x=0 path if accepted
+    const currentStep = graphPoint(6, -2);
+    const delayedCrossPoint = graphPoint(-2, -3);
+    const currentStepEvents = sendLaggingRunner(currentStep.lat, currentStep.lng);
+    assertNoKnockouts(currentStepEvents, "did not expect knockout before delayed runner packet arrives");
+
+    const beforeDelayed = getPlayer(mapId, laggingRunnerId);
+    const beforeDelayedPath = beforeDelayed.path?.geometry.coordinates ?? [];
+    const beforeDelayedPathLength = beforeDelayedPath.length;
+    const beforeDelayedLastPoint = beforeDelayed.lastPoint;
+    assert.ok(beforeDelayedLastPoint, "expected lagging runner to have a latest point before delayed packet");
+
+    // Send an older packet after the runner already has a newer accepted position.
+    const delayedEvents = ingestLocation(
+      mapId,
+      laggingRunnerId,
+      {
+        lat: delayedCrossPoint.lat,
+        lng: delayedCrossPoint.lng,
+        ts: beforeDelayedLastPoint.ts - 1,
+      },
+      ops,
+      expectedUsername(laggingRunnerId)
+    );
+    assert.strictEqual(delayedEvents.length, 0, "expected delayed runner packet to be ignored");
+
+    assertPlayerAlive(mapId, targetId, { expectPath: true, aliveLabel: "target player" });
+
+    const laggingRunnerAfter = getPlayer(mapId, laggingRunnerId);
+    assert.ok(laggingRunnerAfter.path, "expected lagging runner path to remain active after delayed packet");
+    assert.strictEqual(
+      laggingRunnerAfter.lastPoint?.ts,
+      beforeDelayedLastPoint.ts,
+      "expected delayed runner packet not to replace the latest accepted point"
+    );
+    assert.strictEqual(
+      laggingRunnerAfter.path.geometry.coordinates.length,
+      beforeDelayedPathLength,
+      "expected delayed runner packet not to splice into the current path"
+    );
+    assert.deepStrictEqual(
+      laggingRunnerAfter.path.geometry.coordinates[laggingRunnerAfter.path.geometry.coordinates.length - 1],
+      beforeDelayedPath[beforeDelayedPath.length - 1],
+      "expected delayed runner packet to leave the current path endpoint unchanged"
+    );
+    clearMapState(mapId);
+  });
+
+  // VERIFIES:
+  // 1. A runner can already have a newer accepted position when an older packet arrives late
+  // 2. The delayed packet is ignored before it can trigger a retroactive player-vs-player knockout
+  // 3. The target runner remains alive with their active path intact
+  // 4. The lagging runner path endpoint and path size stay on the newest accepted state
+  // TEST END
+
   // TEST: Duplicate Outside Point Is Ignored
   // Game Story: Player B is already outside and the device sends the exact same GPS coordinate again with a newer timestamp.
   // TEST SETUP: A has a vulnerable path on x=0. B exits to (-2, -2), then receives that exact same point again.
@@ -1122,14 +1256,11 @@ try {
     const sendPlayer = createSender(mapId, playerId);
 
     // Victim setup on graph: (0, 0) -> (0, -5) to create a vulnerable vertical path.
-    const victimSpawn = graphPoint(0, 0);
-    const victimOutside = graphPoint(0, -5);
-    sendGhost(victimSpawn.lat, victimSpawn.lng);
-    sendGhost(victimOutside.lat, victimOutside.lng);
-
-    const ghostBeforeDuplicate = getPlayer(mapId, ghostId);
-    assert.strictEqual(ghostBeforeDuplicate.ghostState, "ghost_vulnerable", "expected vulnerable victim path");
-    assert.ok(ghostBeforeDuplicate.path, "expected victim path before duplicate update test");
+    makeGraphVulnerableGhostPath(mapId, ghostId, sendGhost, {
+      x: 0,
+      outsideY: -5,
+      label: "victim",
+    });
 
     // Attacker setup: become a full player, then move outside to a safe point left of victim path.
     const attackerSpawn = graphPoint(20, 20);
@@ -1140,10 +1271,7 @@ try {
     const outsidePoint = graphPoint(-2, -2);
     sendPlayer(attackerBounds.centerLat, attackerBounds.centerLng);
     const firstOutsideEvents = sendPlayer(outsidePoint.lat, outsidePoint.lng);
-    assert.ok(
-      !firstOutsideEvents.some((event) => event.type === "knockout"),
-      "did not expect knockout before duplicate point"
-    );
+    assertNoKnockouts(firstOutsideEvents, "did not expect knockout before duplicate point");
 
     const beforeDuplicate = getPlayer(mapId, playerId);
     const beforeDuplicatePath = beforeDuplicate.path?.geometry.coordinates ?? [];
@@ -1152,14 +1280,9 @@ try {
 
     // Same coordinate, newer timestamp: should be treated like a zero-length segment and ignored.
     const duplicateEvents = sendPlayer(outsidePoint.lat, outsidePoint.lng);
-    assert.ok(
-      !duplicateEvents.some((event) => event.type === "knockout"),
-      "did not expect knockout from duplicate outside point"
-    );
+    assertNoKnockouts(duplicateEvents, "did not expect knockout from duplicate outside point");
 
-    const ghostAfterDuplicate = getPlayer(mapId, ghostId);
-    assert.ok(ghostAfterDuplicate.territory, "expected victim to remain alive after duplicate update");
-    assert.ok(ghostAfterDuplicate.path, "expected victim path to remain active after duplicate update");
+    assertPlayerAlive(mapId, ghostId, { expectPath: true, aliveLabel: "victim" });
 
     const attackerAfterDuplicate = getPlayer(mapId, playerId);
     const afterDuplicatePath = attackerAfterDuplicate.path?.geometry.coordinates ?? [];
@@ -1205,42 +1328,37 @@ try {
     const sendPlayer = createSender(mapId, playerId);
 
     // Phase 1: victim setup.
-    // Spawn ghost territory, then force a long outside path so victim becomes ghost_vulnerable.
-    // This mirrors the real game path where a ghost leaves safe territory before being hittable.
-    sendGhost(0, 0);
-    const ghost = getPlayer(mapId, ghostId);
-    const ghostBounds = getBounds(ghost.territory);
-    makeGhostPath(mapId, ghostId, ghostBounds, sendGhost, 0.01);
-    const ghostBeforeCross = getPlayer(mapId, ghostId);
-    assert.strictEqual(ghostBeforeCross.ghostState, "ghost_vulnerable");
+    // Graph view: victim goes (0, 0) -> (0, -5) so path-cross geometry is easy to reason about.
+    const ghostBeforeCross = makeGraphVulnerableGhostPath(mapId, ghostId, sendGhost, {
+      x: 0,
+      outsideY: -5,
+      label: "victim",
+    });
     assert.ok(ghostBeforeCross.path, "expected victim path while outside");
     assert.ok(
       ghostBeforeCross.path.geometry.coordinates.length >= 2,
       "expected at least one outside segment for victim"
     );
-    // Keep victim path endpoints so attacker can intentionally cross that exact segment.
-    const [gStart, gEnd] = ghostBeforeCross.path.geometry.coordinates;
-    const [gStartLng, gStartLat] = gStart;
-    const [gEndLng, gEndLat] = gEnd;
 
     // Phase 2: attacker setup.
     // Attacker must be in player mode (not ghost) for path-cross knockouts.
     // `makePlayer` seeds territory and confirms promotion out of ghost mode.
-    makePlayer(mapId, playerId, sendPlayer, 0.02, 0.02);
+    const attackerSpawn = graphPoint(20, 20);
+    makePlayer(mapId, playerId, sendPlayer, attackerSpawn.lat, attackerSpawn.lng);
     const playerBeforeCross = getPlayer(mapId, playerId);
     const playerBounds = getBounds(playerBeforeCross.territory);
     // Record area before crossing to prove no accidental territory capture is awarded.
     const attackerAreaBeforeCross = playerBeforeCross.territoryAreaSqMeters;
 
     // Phase 3: crossing action.
-    // Start attacker just outside territory, then force its segment through victim path endpoints.
-    // This constructs the path-cross condition directly and deterministically.
-    const start = sendPlayer(
-      playerBounds.minLat + playerBounds.dLat * 0.1,
-      playerBounds.centerLng
-    );
-    const mid = sendPlayer(gStartLat, gStartLng);
-    const end = sendPlayer(gEndLat, gEndLng);
+    // Graph path:
+    // center -> (-2, -2): approach left of victim line
+    // (-2, -2) -> (2, -2): one clean horizontal crossing through victim path
+    const attackerApproach = graphPoint(-2, -2);
+    const attackerCross = graphPoint(2, -2);
+    const start = sendPlayer(playerBounds.minLat + playerBounds.dLat * 0.1, playerBounds.centerLng);
+    const mid = sendPlayer(attackerApproach.lat, attackerApproach.lng);
+    const end = sendPlayer(attackerCross.lat, attackerCross.lng);
     // Collect all events emitted by this crossing sequence.
     const crossingEvents = [...start, ...mid, ...end];
 
@@ -1280,6 +1398,10 @@ try {
     clearMapState(mapId);
   });
   // TEST END
+
+  // ---------------------------------------------------------------------------
+  // Territory Capture And Geometry Regression Coverage
+  // ---------------------------------------------------------------------------
 
   // TEST: Boundary Selection
   // Description: Capture closure should choose valid smaller-area boundary and increase territory.
