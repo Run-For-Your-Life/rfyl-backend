@@ -681,6 +681,50 @@ try {
     clearMapState(mapId);
   });
 
+  runCase("Defender can knock invader path inside own territory", () => {
+    const mapId = "territory-defense-path-cross";
+    const defender_id = "player-defender";
+    const invader_id = "player-invader";
+    const send_defender = createSender(mapId, defender_id);
+    const send_invader = createSender(mapId, invader_id);
+
+    makePlayer(mapId, defender_id, send_defender, 0, 0);
+    const defender = getPlayer(mapId, defender_id);
+    const defender_bounds = getBounds(defender.territory);
+    const defender_anchor = defender.lastInsidePoint ?? {
+      lat: defender_bounds.centerLat,
+      lng: defender_bounds.centerLng,
+    };
+    const defender_center = turfPoint([defender_anchor.lng, defender_anchor.lat]);
+    assert.ok(
+      booleanPointInPolygon(defender_center, defender.territory),
+      "expected defender anchor to be inside defender territory"
+    );
+    assert.strictEqual(defender.isOutside, false, "expected defender to remain inside");
+
+    const invader_spawn = graphPoint(20, 20);
+    makePlayer(mapId, invader_id, send_invader, invader_spawn.lat, invader_spawn.lng);
+    const invader = getPlayer(mapId, invader_id);
+    const invader_bounds = getBounds(invader.territory);
+    send_invader(invader_bounds.centerLat, invader_bounds.centerLng);
+    const invade_events = send_invader(defender_anchor.lat, defender_anchor.lng);
+
+    const knocked_invader = invade_events.find(
+      (event) => event.type === "knockout" && event.userId === invader_id
+    );
+    assert.ok(knocked_invader, "expected invader to be knocked while entering defender territory");
+    assert.strictEqual(knocked_invader.byUserId, defender_id, "expected defender to receive knockout credit");
+    assert.strictEqual(knocked_invader.reason, "path-cross", "expected path-cross knockout reason");
+
+    const defender_after = getPlayer(mapId, defender_id);
+    assert.ok(defender_after.territory, "expected defender to remain alive");
+    assert.strictEqual(defender_after.isOutside, false, "expected defender to remain inside after defense");
+
+    const invader_after = getPlayer(mapId, invader_id);
+    assertKnockoutResetState(invader_after);
+    clearMapState(mapId);
+  });
+
   // VERIFIES:
   // 1. AFK player keeps an active outside path without sending further updates
   // 2. Moving player crosses AFK path
