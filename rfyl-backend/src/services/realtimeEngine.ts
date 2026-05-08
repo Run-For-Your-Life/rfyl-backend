@@ -7,6 +7,7 @@ import {
   segmentPolygonBoundaryIntersection,
   splitRingAtPoints,
 } from './realtimeGeometry';
+import { createGeometryOps } from './realtimeOps';
 import type {
   GeoPoint,
   GhostState,
@@ -93,8 +94,10 @@ const GHOST_SPAWN_SIZE_METERS = 3;
 const GHOST_VULNERABLE_PATH_METERS = 400;
 const IDLE_FORGIVENESS_SEGMENT_METERS = 1.5;
 const MAX_PLAYERS_PER_MAP = 10;
+const TERRITORY_AREA_EPSILON_SQ_METERS = 1e-6;
 
 const mapStates = new Map<string, MapState>();
+const spawn_geometry_ops = createGeometryOps();
 
 export function getMapSnapshot(mapId: string): MapSnapshot | null {
   const state = mapStates.get(mapId);
@@ -233,17 +236,11 @@ export function respawnPlayer(mapId: string, userId: string, spawnPoint?: GeoPoi
     player.ghostState = 'ghost_invulnerable';
     player.ghostEligible = false;
     player.territoryAreaSqMeters = estimateTerritoryAreaSqMeters(player.territory);
-    return [
-      {
-        type: 'territory',
-        mapId,
-        userId: player.userId,
-        username: player.username,
-        colornum: player.colornum,
-        territory: player.territory,
-      },
-      buildStateEvent(mapId, player),
-    ];
+    const overlap_capture_events = applySpawnOverlapCapture(state, player, spawn_geometry_ops);
+    if (overlap_capture_events.length > 0) {
+      return overlap_capture_events;
+    }
+    return [buildTerritoryEvent(mapId, player), buildStateEvent(mapId, player)];
   }
 
   return [];
@@ -257,10 +254,15 @@ export function ingestLocation(
   username?: string
 ): RealtimeEvent[] {
   const state = getOrCreateMapState(mapId);
+  const player_exists = state.players.has(userId);
   const player = getOrCreatePlayer(state, userId, point, username);
   const events: RealtimeEvent[] = [];
   if (!player) {
     return events;
+  }
+  if (!player_exists && player.territory) {
+    const overlap_capture_events = applySpawnOverlapCapture(state, player, ops);
+    events.push(...overlap_capture_events);
   }
 
   const prevPoint = player.lastPoint;
@@ -389,6 +391,65 @@ function createInitialTerritory(userId: string, point: GeoPoint): TerritoryFeatu
       updatedAt: Date.now(),
     },
   };
+}
+
+function applySpawnOverlapCapture(
+  state: MapState,
+  player: PlayerState,
+  ops: GeometryOps
+): RealtimeEvent[] {
+  if (!player.territory) {
+    return [];
+  }
+
+  let overlap_detected = false;
+  const events: RealtimeEvent[] = [];
+  for (const [other_id, other_player] of state.players.entries()) {
+    if (other_id === player.userId || !other_player.territory) {
+      continue;
+    }
+
+    const before_area = other_player.territoryAreaSqMeters;
+    const updated_territory = ops.difference(other_player.territory, player.territory);
+    if (!updated_territory) {
+      if (before_area <= TERRITORY_AREA_EPSILON_SQ_METERS) {
+        continue;
+      }
+      overlap_detected = true;
+      other_player.territory = null;
+      other_player.territoryAreaSqMeters = 0;
+      other_player.path = [];
+      other_player.isOutside = false;
+      other_player.pathLengthMeters = 0;
+      other_player.ghostState = 'ghost_invulnerable';
+      other_player.ghostEligible = false;
+      delete other_player.lastInsidePoint;
+      events.push(buildStateEvent(state.mapId, other_player));
+      continue;
+    }
+
+    const updated_area = estimateTerritoryAreaSqMeters(updated_territory);
+    if (updated_area + TERRITORY_AREA_EPSILON_SQ_METERS >= before_area) {
+      continue;
+    }
+    overlap_detected = true;
+    other_player.territory = updated_territory;
+    other_player.territory.properties.updatedAt = Date.now();
+    other_player.territoryAreaSqMeters = updated_area;
+    events.push(buildTerritoryEvent(state.mapId, other_player));
+    events.push(buildStateEvent(state.mapId, other_player));
+  }
+
+  if (!overlap_detected) {
+    return [];
+  }
+
+  player.territory.properties.updatedAt = Date.now();
+  player.territoryAreaSqMeters = estimateTerritoryAreaSqMeters(player.territory);
+  player.ghostState = 'runner';
+  player.ghostEligible = false;
+
+  return [buildTerritoryEvent(state.mapId, player), buildStateEvent(state.mapId, player), ...events];
 }
 
 function extendPath(
@@ -691,6 +752,20 @@ function buildPathEvent(mapId: string, player: PlayerState): RealtimeEvent {
     username: player.username,
     colornum: player.colornum,
     path,
+  };
+}
+
+function buildTerritoryEvent(mapId: string, player: PlayerState): Extract<RealtimeEvent, { type: 'territory' }> {
+  if (!player.territory) {
+    throw new Error('territory event requires territory');
+  }
+  return {
+    type: 'territory',
+    mapId,
+    userId: player.userId,
+    username: player.username,
+    colornum: player.colornum,
+    territory: player.territory,
   };
 }
 
