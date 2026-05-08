@@ -297,6 +297,63 @@ try {
   });
   // TEST END
 
+  runCase("Respawn overlap subtracts opponent territory and counts as capture", () => {
+    const map_id = "respawn-overlap-capture";
+    const defender_id = "respawn-overlap-defender";
+    const attacker_id = "respawn-overlap-attacker";
+    const defender_username = expectedUsername(defender_id);
+    const attacker_username = expectedUsername(attacker_id);
+    const spawn_point = { lat: 0, lng: 0, ts: Date.now() };
+
+    const defender_join_events = joinPlayer(map_id, defender_id, defender_username);
+    assert.ok(defender_join_events.length > 0, "expected defender join to succeed");
+    const defender_spawn_events = respawnPlayer(map_id, defender_id, spawn_point);
+    assert.ok(defender_spawn_events.length > 0, "expected defender respawn to seed territory");
+
+    const attacker_join_events = joinPlayer(map_id, attacker_id, attacker_username);
+    assert.ok(attacker_join_events.length > 0, "expected attacker join to succeed");
+    const overlap_events = respawnPlayer(map_id, attacker_id, {
+      lat: spawn_point.lat,
+      lng: spawn_point.lng,
+      ts: spawn_point.ts + 1,
+    });
+    assert.ok(overlap_events.length > 0, "expected overlap respawn events");
+
+    const attacker_state_event = overlap_events.find(
+      (event) => event.type === "state" && event.userId === attacker_id
+    );
+    assert.strictEqual(
+      attacker_state_event?.ghostState,
+      "runner",
+      "expected overlap spawn to count as an immediate capture"
+    );
+    const attacker_territory_event = overlap_events.find(
+      (event) => event.type === "territory" && event.userId === attacker_id
+    );
+    assert.ok(attacker_territory_event, "expected attacker territory event on overlap spawn");
+
+    const defender_after = getPlayer(map_id, defender_id);
+    assert.strictEqual(
+      defender_after.territory,
+      null,
+      "expected defender territory removed after overlap spawn capture"
+    );
+    assert.strictEqual(
+      defender_after.ghostState,
+      "ghost_invulnerable",
+      "expected defender reset to invulnerable ghost after overlap spawn capture"
+    );
+
+    const attacker_after = getPlayer(map_id, attacker_id);
+    assert.ok(attacker_after.territory, "expected attacker territory to remain after overlap capture");
+    assert.strictEqual(
+      attacker_after.ghostState,
+      "runner",
+      "expected attacker to remain runner after overlap spawn capture"
+    );
+    clearMapState(map_id);
+  });
+
   // TEST: Inside Loop No Capture
   // Description: A loop that never leaves territory must not start a capture event.
   runCase("Closed loop while inside should not start capture", () => {
