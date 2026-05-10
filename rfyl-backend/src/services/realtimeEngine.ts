@@ -282,6 +282,7 @@ export function ingestLocation(
 
   const position: Position = [point.lng, point.lat];
   const inside = pointInPolygon(position, player.territory.geometry);
+  const was_outside = player.isOutside;
   if (inside) {
     player.lastInsidePoint = point;
     if (player.isOutside) {
@@ -313,6 +314,13 @@ export function ingestLocation(
         reverseReentryBoundary
       );
       events.push(...captureEvents);
+    }
+    if (!was_outside) {
+      const segment_start: Position = prevPoint ? [prevPoint.lng, prevPoint.lat] : position;
+      const segment_meters = prevPoint ? segmentDistanceMeters(prevPoint, point) : 0;
+      if (segment_meters >= IDLE_FORGIVENESS_SEGMENT_METERS) {
+        events.push(...knockOutsidePathVictims(state, player, segment_start, position));
+      }
     }
     if (player.ghostState !== 'runner' && player.territory) {
       updateTerritoryMetrics(player);
@@ -493,12 +501,6 @@ function extendPath(
     player.isOutside = true;
     player.pathLengthMeters = pathLengthMeters(player.path);
     updateGhostVulnerability(player);
-    const territory_defender = findTerritoryDefender(state, player, snapped, position);
-    if (territory_defender) {
-      events.push(knockoutPlayer(state.mapId, player, territory_defender, 'path-cross'));
-      events.push(buildStateEvent(state.mapId, player));
-      return events;
-    }
     events.push(buildPathEvent(state.mapId, player));
     if (player.ghostState !== 'runner') {
       events.push(buildStateEvent(state.mapId, player));
@@ -535,28 +537,7 @@ function extendPath(
       return events;
     }
 
-    const territory_defender = findTerritoryDefender(state, player, segmentStart, segmentEnd);
-    if (territory_defender) {
-      events.push(knockoutPlayer(state.mapId, player, territory_defender, 'path-cross'));
-      events.push(buildStateEvent(state.mapId, player));
-      return events;
-    }
-
-    if (canKnock(player)) {
-      for (const [otherId, otherPlayer] of state.players.entries()) {
-        if (otherId === player.userId || !otherPlayer.isOutside) {
-          continue;
-        }
-        if (!canBeKnocked(otherPlayer)) {
-          continue;
-        }
-        const otherLine = otherPlayer.path.map((p) => [p.lng, p.lat]);
-        if (lineStringIntersects(otherLine, segmentStart, segmentEnd)) {
-          events.push(knockoutPlayer(state.mapId, otherPlayer, player, 'path-cross'));
-          events.push(buildStateEvent(state.mapId, otherPlayer));
-        }
-      }
-    }
+    events.push(...knockOutsidePathVictims(state, player, segmentStart, segmentEnd));
   }
 
   events.push(buildPathEvent(state.mapId, player));
@@ -930,46 +911,30 @@ function canBeKnocked(player: PlayerState): boolean {
   return player.ghostState !== 'ghost_invulnerable';
 }
 
-function findTerritoryDefender(
+function knockOutsidePathVictims(
   state: MapState,
   player: PlayerState,
   segmentStart: Position,
   segmentEnd: Position
-): PlayerState | null {
-  if (!canBeKnocked(player)) {
-    return null;
+): RealtimeEvent[] {
+  if (!canKnock(player)) {
+    return [];
   }
-  for (const [other_id, other_player] of state.players.entries()) {
-    if (other_id === player.userId || other_player.isOutside || !other_player.territory) {
+  const events: RealtimeEvent[] = [];
+  for (const [otherId, otherPlayer] of state.players.entries()) {
+    if (otherId === player.userId || !otherPlayer.isOutside) {
       continue;
     }
-    if (!canKnock(other_player)) {
+    if (!canBeKnocked(otherPlayer)) {
       continue;
     }
-    if (segmentIntersectsTerritory(segmentStart, segmentEnd, other_player.territory)) {
-      return other_player;
+    const otherLine = otherPlayer.path.map((p) => [p.lng, p.lat]);
+    if (lineStringIntersects(otherLine, segmentStart, segmentEnd)) {
+      events.push(knockoutPlayer(state.mapId, otherPlayer, player, 'path-cross'));
+      events.push(buildStateEvent(state.mapId, otherPlayer));
     }
   }
-  return null;
-}
-
-function segmentIntersectsTerritory(
-  segmentStart: Position,
-  segmentEnd: Position,
-  territory: TerritoryFeature
-): boolean {
-  if (
-    pointInPolygon(segmentStart, territory.geometry) ||
-    pointInPolygon(segmentEnd, territory.geometry)
-  ) {
-    return true;
-  }
-  const boundary_forward = segmentPolygonBoundaryIntersection(segmentStart, segmentEnd, territory.geometry);
-  if (boundary_forward) {
-    return true;
-  }
-  const boundary_reverse = segmentPolygonBoundaryIntersection(segmentEnd, segmentStart, territory.geometry);
-  return Boolean(boundary_reverse);
+  return events;
 }
 
 function updateGhostVulnerability(player: PlayerState): void {
