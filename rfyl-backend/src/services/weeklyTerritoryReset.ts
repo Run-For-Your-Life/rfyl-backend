@@ -1,14 +1,14 @@
 import pool from '../db/dbclient.js';
-import { getEnv, getNumberEnv } from '../config/env.js';
 import { rolloverWeeklyMatchmaking } from './mapMatchmaking.js';
 import { getActiveMapIds } from './realtimeEngine.js';
 import { resetMap } from './mapResetService.js';
 
-const DEFAULT_WEEKDAY = 'monday';
+const WEEKLY_RESET_ENABLED = true;
+const WEEKLY_RESET_WEEKDAY = 'monday';
+const WEEKLY_RESET_HOUR = 0;
+const WEEKLY_RESET_MINUTE = 0;
+const WEEKLY_RESET_TIMEZONE = 'America/Los_Angeles';
 const DEFAULT_WEEKDAY_INDEX = 1;
-const DEFAULT_HOUR = 0;
-const DEFAULT_MINUTE = 0;
-const DEFAULT_TIMEZONE = 'UTC';
 const MINUTE_MS = 60_000;
 const MAX_SEARCH_MINUTES = 8 * 24 * 60;
 const WEEKDAY_INDEX: Record<string, number> = {
@@ -131,13 +131,13 @@ function getZonedDateParts(date: Date): ZonedDateParts {
   });
   const parts = formatter.formatToParts(date);
   const values = new Map(parts.map((part) => [part.type, part.value]));
-  const weekdayLabel = values.get('weekday')?.toLowerCase() ?? DEFAULT_WEEKDAY;
+  const weekdayLabel = values.get('weekday')?.toLowerCase() ?? WEEKLY_RESET_WEEKDAY;
   const weekday = WEEKDAY_INDEX[weekdayLabel] ?? DEFAULT_WEEKDAY_INDEX;
   const year = values.get('year') ?? '0000';
   const month = values.get('month') ?? '01';
   const day = values.get('day') ?? '01';
-  const hour = Number(values.get('hour') ?? DEFAULT_HOUR);
-  const minute = Number(values.get('minute') ?? DEFAULT_MINUTE);
+  const hour = Number(values.get('hour') ?? WEEKLY_RESET_HOUR);
+  const minute = Number(values.get('minute') ?? WEEKLY_RESET_MINUTE);
 
   return {
     weekday,
@@ -148,37 +148,34 @@ function getZonedDateParts(date: Date): ZonedDateParts {
 }
 
 function isWeeklyResetEnabled(): boolean {
-  const raw = getEnv('WEEKLY_TERRITORY_RESET_ENABLED', '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+  return WEEKLY_RESET_ENABLED;
 }
 
 function getScheduledWeekday(): number {
-  const rawDay = getEnv('WEEKLY_TERRITORY_RESET_DAY', DEFAULT_WEEKDAY).trim().toLowerCase();
+  const rawDay = WEEKLY_RESET_WEEKDAY.trim().toLowerCase();
   return WEEKDAY_INDEX[rawDay] ?? DEFAULT_WEEKDAY_INDEX;
 }
 
 function getScheduledHour(): number {
-  const hour = getNumberEnv('WEEKLY_TERRITORY_RESET_HOUR', DEFAULT_HOUR);
-  return clampNumber(hour, 0, 23, DEFAULT_HOUR);
+  return clampNumber(WEEKLY_RESET_HOUR, 0, 23, 0);
 }
 
 function getScheduledMinute(): number {
-  const minute = getNumberEnv('WEEKLY_TERRITORY_RESET_MINUTE', DEFAULT_MINUTE);
-  return clampNumber(minute, 0, 59, DEFAULT_MINUTE);
+  return clampNumber(WEEKLY_RESET_MINUTE, 0, 59, 0);
 }
 
 function getScheduledTimezone(): string {
-  const timezone = getEnv('WEEKLY_TERRITORY_RESET_TZ', DEFAULT_TIMEZONE).trim();
+  const timezone = WEEKLY_RESET_TIMEZONE.trim();
   if (!timezone) {
-    return DEFAULT_TIMEZONE;
+    return 'UTC';
   }
 
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
     return timezone;
   } catch {
-    console.warn(`Invalid WEEKLY_TERRITORY_RESET_TZ "${timezone}", falling back to ${DEFAULT_TIMEZONE}`);
-    return DEFAULT_TIMEZONE;
+    console.warn(`Invalid hard-coded weekly reset timezone "${timezone}", falling back to UTC`);
+    return 'UTC';
   }
 }
 
