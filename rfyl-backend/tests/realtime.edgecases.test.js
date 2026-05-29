@@ -108,6 +108,66 @@ runCase("ingestLocation should ignore stale/out-of-order timestamps", () => {
   }
 });
 
+runCase("ingestLocation should lock movement after impossible jump until return to last valid point", () => {
+  const map_id = "edge-anticheat-lock";
+  const user_id = "player-anticheat";
+  const username = "name-player-anticheat";
+  const base_ts = Date.now();
+  try {
+    ingestLocation(map_id, user_id, { lat: 0, lng: 0, ts: base_ts }, ops, username);
+
+    const impossible_jump_events = ingestLocation(
+      map_id,
+      user_id,
+      { lat: 0, lng: 0.06, ts: base_ts + 1000 },
+      ops,
+      username
+    );
+    assert.strictEqual(impossible_jump_events.length, 0, "expected impossible jump point to be denied");
+    const after_jump = getMapSnapshot(map_id);
+    assert.ok(after_jump, "expected snapshot after impossible jump");
+    const after_jump_player = after_jump.players.find((p) => p.userId === user_id);
+    assert.ok(after_jump_player, "expected player after impossible jump");
+    assert.strictEqual(after_jump_player.anticheatLocked, true, "expected player to be anticheat locked");
+    assert.strictEqual(
+      after_jump_player.anticheatLockReason,
+      "speed_violation",
+      "expected speed violation lock reason"
+    );
+    assert.ok(after_jump_player.anticheatReturnTo, "expected return target for anticheat lock");
+    assert.strictEqual(after_jump_player.lastPoint?.lng, 0, "expected denied jump not to update lastPoint");
+    assert.strictEqual(
+      after_jump_player.lastPoint?.ts,
+      base_ts,
+      "expected denied jump not to update lastPoint timestamp"
+    );
+
+    ingestLocation(map_id, user_id, { lat: 0, lng: 0.059, ts: base_ts + 2000 }, ops, username);
+    const while_locked = getMapSnapshot(map_id);
+    assert.ok(while_locked, "expected snapshot while locked");
+    const while_locked_player = while_locked.players.find((p) => p.userId === user_id);
+    assert.ok(while_locked_player, "expected player while locked");
+    assert.strictEqual(while_locked_player.anticheatLocked, true, "expected lock to remain active");
+    assert.strictEqual(while_locked_player.lastPoint?.lng, 0, "expected locked player to keep last valid point");
+    assert.strictEqual(while_locked_player.lastPoint?.ts, base_ts, "expected lock to keep old timestamp");
+
+    ingestLocation(map_id, user_id, { lat: 0, lng: 0, ts: base_ts + 3000 }, ops, username);
+    ingestLocation(map_id, user_id, { lat: 0, lng: 0.00005, ts: base_ts + 4000 }, ops, username);
+    const after_unlock = getMapSnapshot(map_id);
+    assert.ok(after_unlock, "expected snapshot after unlock");
+    const after_unlock_player = after_unlock.players.find((p) => p.userId === user_id);
+    assert.ok(after_unlock_player, "expected player after unlock");
+    assert.strictEqual(after_unlock_player.anticheatLocked, false, "expected lock to clear after return");
+    assert.strictEqual(
+      after_unlock_player.lastPoint?.ts,
+      base_ts + 4000,
+      "expected ingestion to resume after returning to last valid point"
+    );
+  } finally {
+    clearMapState(map_id);
+  }
+});
+
 runCase("map should enforce max 10 players", () => {
   const mapId = "edge-player-cap";
   try {
