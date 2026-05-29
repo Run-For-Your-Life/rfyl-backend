@@ -93,7 +93,17 @@ Request (single update or array):
 Responses:
 - `202` accepted:
 ```json
-{ "received": 1, "accepted": 1, "rejectedNotJoined": 0 }
+{
+  "received": 1,
+  "accepted": 1,
+  "rejectedNotJoined": 0,
+  "rejectedOutOfBounds": 0,
+  "rejectedAnticheat": 0,
+  "anticheatLocked": false,
+  "anticheatReason": null,
+  "returnTo": null,
+  "returnToleranceMeters": 12
+}
 ```
 - `409` if all updates were from non-joined players:
 ```json
@@ -101,9 +111,25 @@ Responses:
   "error": "player_not_joined",
   "received": 1,
   "accepted": 0,
-  "rejectedNotJoined": 1
+  "rejectedNotJoined": 1,
+  "rejectedOutOfBounds": 0,
+  "rejectedAnticheat": 0,
+  "anticheatLocked": false,
+  "anticheatReason": null,
+  "returnTo": null,
+  "returnToleranceMeters": 12
 }
 ```
+
+Anti-cheat behavior:
+- If an update implies average speed above a hardcoded threshold (Usain Bolt max speed), backend rejects that point.
+- Backend enters lock mode and keeps rejecting points until player returns near the previous valid point.
+- While locked, `/locations` returns:
+  - `rejectedAnticheat > 0`
+  - `anticheatLocked: true`
+  - `anticheatReason: "speed_violation"`
+  - `returnTo: { lat, lng }`
+  - `returnToleranceMeters: 12`
 
 ### 4) Snapshot
 `GET /api/maps/:mapId/state`
@@ -122,7 +148,10 @@ Returns:
       "ghostState": "ghost_invulnerable",
       "ghostEligible": false,
       "pathLengthMeters": 0,
-      "territoryAreaSqMeters": 0
+      "territoryAreaSqMeters": 0,
+      "anticheatLocked": false,
+      "anticheatLockReason": null,
+      "anticheatReturnTo": null
     }
   ]
 }
@@ -163,6 +192,26 @@ Transitions:
   - `knockout` event for that user
   - `territory` update where loop closes and path disappears in subsequent state
 - Keep color keyed by `userId`; label with `username`.
+- If `anticheatLocked` is true for self:
+  - show a persistent banner: `GPS jump detected. Return to your last valid point to continue.`
+  - render a marker/ring at `anticheatReturnTo` with radius `returnToleranceMeters`.
+  - keep sending location updates; backend unlocks automatically when player returns.
+- Clear anti-cheat banner/marker when `/locations` returns `anticheatLocked: false` and `rejectedAnticheat: 0`.
+
+## Frontend Handling Contract
+
+On every `/locations` response:
+
+1. If `anticheatLocked` is `true`:
+   - set local state `movementLocked=true`.
+   - use `returnTo` and `returnToleranceMeters` to guide the player back.
+
+2. If `anticheatLocked` is `false`:
+   - set `movementLocked=false`.
+   - hide guidance marker/banner.
+
+3. If `rejectedAnticheat > 0`:
+   - show one toast/banner trigger (debounced), do not spam per tick.
 
 ## Migration Checklist For Frontend
 
@@ -174,6 +223,7 @@ Transitions:
    - only then start 1 Hz location updates
 4. Handle `409 player_not_joined` from `/locations` by re-joining and retrying.
 5. Update event handlers to read `username` from SSE payloads.
+6. Handle anti-cheat fields from `/locations` and from `GET /state` player snapshot.
 
 ## Minimal Curl Flow
 

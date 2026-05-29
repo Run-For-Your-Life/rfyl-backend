@@ -9,6 +9,7 @@ import {
 } from './realtimeGeometry';
 import { createGeometryOps } from './realtimeOps';
 import type {
+  AnticheatLockReason,
   GeoPoint,
   GhostState,
   MapState,
@@ -86,6 +87,9 @@ export type MapSnapshot = {
     territoryAreaSqMeters: number;
     lastPoint?: GeoPoint;
     lastInsidePoint?: GeoPoint;
+    anticheatLocked: boolean;
+    anticheatLockReason?: AnticheatLockReason;
+    anticheatReturnTo?: Pick<GeoPoint, 'lat' | 'lng'>;
   }>;
 };
 
@@ -95,6 +99,9 @@ const GHOST_VULNERABLE_PATH_METERS = 400;
 const IDLE_FORGIVENESS_SEGMENT_METERS = 1.5;
 const MAX_PLAYERS_PER_MAP = 10;
 const TERRITORY_AREA_EPSILON_SQ_METERS = 1e-6;
+const USAIN_BOLT_MAX_SPEED_METERS_PER_SECOND = 12.42;
+const ANTICHEAT_MIN_SPEED_CHECK_SECONDS = 1;
+const ANTICHEAT_RETURN_TOLERANCE_METERS = 12;
 
 const mapStates = new Map<string, MapState>();
 const spawn_geometry_ops = createGeometryOps();
@@ -117,9 +124,38 @@ export function getMapSnapshot(mapId: string): MapSnapshot | null {
       ghostEligible: player.ghostEligible,
       pathLengthMeters: player.pathLengthMeters,
       territoryAreaSqMeters: player.territoryAreaSqMeters,
+      anticheatLocked: Boolean(player.anticheatLockPoint),
+      ...(player.anticheatLockReason ? { anticheatLockReason: player.anticheatLockReason } : {}),
+      ...(player.anticheatLockPoint
+        ? { anticheatReturnTo: { lat: player.anticheatLockPoint.lat, lng: player.anticheatLockPoint.lng } }
+        : {}),
       ...(player.lastPoint ? { lastPoint: player.lastPoint } : {}),
       ...(player.lastInsidePoint ? { lastInsidePoint: player.lastInsidePoint } : {}),
     })),
+  };
+}
+
+export type PlayerAnticheatStatus = {
+  locked: boolean;
+  reason?: AnticheatLockReason;
+  returnTo?: Pick<GeoPoint, 'lat' | 'lng'>;
+  returnToleranceMeters: number;
+};
+
+export function getPlayerAnticheatStatus(mapId: string, userId: string): PlayerAnticheatStatus | null {
+  const state = mapStates.get(mapId);
+  const player = state?.players.get(userId);
+  if (!player) {
+    return null;
+  }
+
+  return {
+    locked: Boolean(player.anticheatLockPoint),
+    ...(player.anticheatLockReason ? { reason: player.anticheatLockReason } : {}),
+    ...(player.anticheatLockPoint
+      ? { returnTo: { lat: player.anticheatLockPoint.lat, lng: player.anticheatLockPoint.lng } }
+      : {}),
+    returnToleranceMeters: ANTICHEAT_RETURN_TOLERANCE_METERS,
   };
 }
 
@@ -235,6 +271,8 @@ export function respawnPlayer(mapId: string, userId: string, spawnPoint?: GeoPoi
     player.pathLengthMeters = 0;
     player.ghostState = 'ghost_invulnerable';
     player.ghostEligible = false;
+    delete player.anticheatLockPoint;
+    delete player.anticheatLockReason;
     player.territoryAreaSqMeters = estimateTerritoryAreaSqMeters(player.territory);
     const overlap_capture_events = applySpawnOverlapCapture(state, player, spawn_geometry_ops);
     if (overlap_capture_events.length > 0) {
@@ -267,6 +305,9 @@ export function ingestLocation(
 
   const prevPoint = player.lastPoint;
   if (prevPoint && point.ts <= prevPoint.ts) {
+    return events;
+  }
+  if (!acceptPointByAnticheat(player, point)) {
     return events;
   }
   const prevInside = Boolean(
@@ -790,6 +831,8 @@ function resetPlayerAfterKnockout(player: PlayerState): void {
   player.territoryAreaSqMeters = 0;
   player.ghostState = 'ghost_invulnerable';
   player.ghostEligible = false;
+  delete player.anticheatLockPoint;
+  delete player.anticheatLockReason;
   delete player.lastInsidePoint;
 }
 
@@ -911,6 +954,44 @@ function canBeKnocked(player: PlayerState): boolean {
   return player.ghostState !== 'ghost_invulnerable';
 }
 
+function acceptPointByAnticheat(player: PlayerState, point: GeoPoint): boolean {
+  const prev_point = player.lastPoint;
+  if (!prev_point) {
+    return true;
+  }
+
+  const lock_point = player.anticheatLockPoint;
+  if (lock_point) {
+    const return_distance_meters = segmentDistanceMeters(lock_point, point);
+    if (return_distance_meters > ANTICHEAT_RETURN_TOLERANCE_METERS) {
+      return false;
+    }
+    delete player.anticheatLockPoint;
+    delete player.anticheatLockReason;
+    return true;
+  }
+
+  if (!shouldApplyAnticheatSpeedCheck(prev_point, point)) {
+    return true;
+  }
+
+  const delta_seconds = pointDeltaSeconds(prev_point, point);
+  if (delta_seconds <= 0) {
+    return false;
+  }
+  if (delta_seconds < ANTICHEAT_MIN_SPEED_CHECK_SECONDS) {
+    return true;
+  }
+  const segment_meters = segmentDistanceMeters(prev_point, point);
+  const average_speed_meters_per_second = segment_meters / delta_seconds;
+  if (average_speed_meters_per_second > USAIN_BOLT_MAX_SPEED_METERS_PER_SECOND) {
+    player.anticheatLockPoint = prev_point;
+    player.anticheatLockReason = 'speed_violation';
+    return false;
+  }
+  return true;
+}
+
 function knockOutsidePathVictims(
   state: MapState,
   player: PlayerState,
@@ -984,6 +1065,18 @@ function segmentDistanceMeters(a: GeoPoint, b: GeoPoint): number {
     sinLat * sinLat +
     Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
   return 2 * r * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function pointDeltaSeconds(previous_point: GeoPoint, next_point: GeoPoint): number {
+  const delta_time = next_point.ts - previous_point.ts;
+  if (!Number.isFinite(delta_time) || delta_time <= 0) {
+    return 0;
+  }
+  return delta_time / 1000;
+}
+
+function shouldApplyAnticheatSpeedCheck(previous_point: GeoPoint, next_point: GeoPoint): boolean {
+  return previous_point.ts >= 100_000_000_000 && next_point.ts >= 100_000_000_000;
 }
 
 function estimateTerritoryAreaSqMeters(territory: TerritoryFeature): number {

@@ -1,7 +1,13 @@
 import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
 
-import { getMapSnapshot, hasPlayer, ingestLocation, type RealtimeEvent } from '../../../services/realtimeEngine';
+import {
+  getMapSnapshot,
+  getPlayerAnticheatStatus,
+  hasPlayer,
+  ingestLocation,
+  type RealtimeEvent,
+} from '../../../services/realtimeEngine';
 import { isManagedMatchmadeMapId, recordMatchmakingActivity } from '../../../services/mapMatchmaking.js';
 import { createGeometryOps } from '../../../services/realtimeOps';
 import { appendRealtimeWal } from '../../../services/realtimePersistence';
@@ -52,6 +58,11 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
         accepted: 0,
         rejectedNotJoined: true,
         rejectedOutOfBounds: false,
+        rejectedAnticheat: 0,
+        anticheatLocked: false,
+        anticheatReason: null,
+        returnTo: null,
+        returnToleranceMeters: null,
       });
       return;
     }
@@ -63,6 +74,7 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
     let accepted = 0;
     let rejectedNotJoined = false;
     let rejectedOutOfBounds = false;
+    let rejectedAnticheat = 0;
     const events: RealtimeEvent[] = [];
     const userUid = authReq.auth.userUid;
     const snapshotBefore = getMapSnapshot(map_id);
@@ -112,16 +124,37 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
         ts,
         ...(accuracyValue === undefined ? {} : { accuracy: Number(accuracyValue) }),
       };
+      const before_anticheat_status = getPlayerAnticheatStatus(map_id, userUid);
       const updateEvents = ingestLocation(map_id, userUid, update, geometryOps, username);
       events.push(...updateEvents);
-      accepted += 1;
+
+      const updated_point = getLastPointForUser(getMapSnapshot(map_id), userUid);
+      const did_accept_point =
+        Boolean(updated_point) &&
+        updated_point?.ts === ts &&
+        updated_point?.lat === lat &&
+        updated_point?.lng === lng;
+      const after_anticheat_status = getPlayerAnticheatStatus(map_id, userUid);
+      if (did_accept_point) {
+        accepted += 1;
+      } else if (
+        (!previousPoint || ts > previousPoint.ts) &&
+        (before_anticheat_status?.locked || after_anticheat_status?.locked)
+      ) {
+        rejectedAnticheat += 1;
+      }
 
       const currentPoint: DistancePoint = { lat, lng, ts };
       if (!previousPoint) {
-        previousPoint = currentPoint;
+        if (did_accept_point) {
+          previousPoint = currentPoint;
+        }
         continue;
       }
       if (ts <= previousPoint.ts) {
+        continue;
+      }
+      if (!did_accept_point) {
         continue;
       }
       const priorPoint = previousPoint;
@@ -170,6 +203,8 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
         accepted,
         rejectedNotJoined,
         rejectedOutOfBounds,
+        rejectedAnticheat,
+        ...buildAnticheatResponse(getPlayerAnticheatStatus(map_id, userUid)),
       });
       return;
     }
@@ -181,6 +216,8 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
         accepted,
         rejectedNotJoined,
         rejectedOutOfBounds,
+        rejectedAnticheat,
+        ...buildAnticheatResponse(getPlayerAnticheatStatus(map_id, userUid)),
       });
       return;
     }
@@ -190,9 +227,20 @@ export function createLocationsRouter(geometryOps: GeometryOps, options: Locatio
       accepted,
       rejectedNotJoined,
       rejectedOutOfBounds,
+      rejectedAnticheat,
+      ...buildAnticheatResponse(getPlayerAnticheatStatus(map_id, userUid)),
     });
   });
   return router;
+}
+
+function buildAnticheatResponse(status: ReturnType<typeof getPlayerAnticheatStatus>) {
+  return {
+    anticheatLocked: Boolean(status?.locked),
+    anticheatReason: status?.reason ?? null,
+    returnTo: status?.returnTo ?? null,
+    returnToleranceMeters: status?.returnToleranceMeters ?? null,
+  };
 }
 
 function getLastPointForUser(snapshot: ReturnType<typeof getMapSnapshot>, userId: string): DistancePoint | null {
