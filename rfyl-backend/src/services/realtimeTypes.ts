@@ -31,6 +31,7 @@ export type PathFeature = {
 };
 
 export type GhostState = 'ghost_invulnerable' | 'ghost_vulnerable' | 'runner';
+export type AnticheatLockReason = 'speed_violation';
 
 export type PlayerState = {
   userId: string;
@@ -45,6 +46,8 @@ export type PlayerState = {
   territoryAreaSqMeters: number;
   lastPoint?: GeoPoint;
   lastInsidePoint?: GeoPoint;
+  anticheatLockPoint?: GeoPoint;
+  anticheatLockReason?: AnticheatLockReason;
 };
 
 export type MapState = {
